@@ -20,23 +20,23 @@ export function authRouter({ db, config, requireAuth }) {
       message: { error: 'Muitas tentativas de login. Aguarde 15 minutos.' } })
     : (req, res, next) => next();
 
-  const mePayload = (user, csrf) => ({
+  const mePayload = async (user, csrf) => ({
     user,
     csrf,
     permissions: permissionsFor(user.role),
     roles: ROLE_LABELS,
     modules: MODULES,
-    company: getSettings(db).company_name,
+    company: (await getSettings(db)).company_name,
     whatsappApi: isApiConfigured(config),
   });
 
-  r.post('/auth/login', loginLimiter, (req, res) => {
+  r.post('/auth/login', loginLimiter, async (req, res) => {
     const body = parse(z.object({
       email: z.string().trim().toLowerCase().max(160),
       password: z.string().max(128),
     }), req.body);
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(body.email);
+    const user = (await db.get('SELECT * FROM users WHERE email = ?', body.email));
     const now = Date.now();
     if (user?.locked_until && Date.parse(user.locked_until) > now) {
       verifyPassword(body.password, DUMMY_HASH);
@@ -47,49 +47,46 @@ export function authRouter({ db, config, requireAuth }) {
       if (user) {
         const attempts = user.failed_attempts + 1;
         const lockedUntil = attempts >= MAX_ATTEMPTS ? new Date(now + LOCK_MINUTES * 60000).toISOString() : null;
-        db.prepare('UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?')
-          .run(lockedUntil ? 0 : attempts, lockedUntil, user.id);
-        audit(db, { ...req, user }, 'login_falhou', 'users', user.id);
+        (await db.run('UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?', lockedUntil ? 0 : attempts, lockedUntil, user.id));
+        await audit(db, { ...req, user }, 'login_falhou', 'users', user.id);
       }
       throw unauthorized('E-mail ou senha incorretos.');
     }
 
-    db.prepare("DELETE FROM sessions WHERE expires_at < ?").run(new Date(now).toISOString());
-    db.prepare("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?").run(user.id);
+    (await db.run("DELETE FROM sessions WHERE expires_at < ?", new Date(now).toISOString()));
+    (await db.run("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", user.id));
 
     const token = randomToken();
     const csrf = randomToken();
-    db.prepare('INSERT INTO sessions (id, user_id, csrf_token, ip, user_agent, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(sha256(token), user.id, csrf, req.ip ?? null, String(req.get('user-agent') || '').slice(0, 300),
-        new Date(now + config.sessionTtlHours * 3600 * 1000).toISOString());
+    (await db.run('INSERT INTO sessions (id, user_id, csrf_token, ip, user_agent, expires_at) VALUES (?, ?, ?, ?, ?, ?)', sha256(token), user.id, csrf, req.ip ?? null, String(req.get('user-agent') || '').slice(0, 300),
+        new Date(now + config.sessionTtlHours * 3600 * 1000).toISOString()));
     res.cookie(cookieName(config), token, cookieOptions(config));
     const safeUser = { id: user.id, name: user.name, email: user.email, role: user.role, mustChangePassword: !!user.must_change_password };
-    audit(db, { ...req, user: safeUser }, 'login', 'users', user.id);
-    res.json(mePayload(safeUser, csrf));
+    await audit(db, { ...req, user: safeUser }, 'login', 'users', user.id);
+    res.json(await mePayload(safeUser, csrf));
   });
 
-  r.post('/auth/logout', (req, res) => {
-    if (req.session) db.prepare('DELETE FROM sessions WHERE id = ?').run(req.session.id);
+  r.post('/auth/logout', async (req, res) => {
+    if (req.session) (await db.run('DELETE FROM sessions WHERE id = ?', req.session.id));
     res.clearCookie(cookieName(config), { path: '/' });
     res.json({ ok: true });
   });
 
-  r.get('/auth/me', requireAuth, (req, res) => {
-    res.json(mePayload(req.user, req.session.csrf));
+  r.get('/auth/me', requireAuth, async (req, res) => {
+    res.json(await mePayload(req.user, req.session.csrf));
   });
 
-  r.post('/auth/change-password', requireAuth, (req, res) => {
+  r.post('/auth/change-password', requireAuth, async (req, res) => {
     const body = parse(z.object({ current: z.string().max(128), password: z.string().max(128) }), req.body);
-    const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id);
+    const user = (await db.get('SELECT password_hash FROM users WHERE id = ?', req.user.id));
     if (!verifyPassword(body.current, user.password_hash)) throw badRequest('Senha atual incorreta.');
     const problem = passwordProblem(body.password);
     if (problem) throw badRequest(problem);
     if (body.current === body.password) throw badRequest('A nova senha precisa ser diferente da atual.');
-    db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime('now') WHERE id = ?")
-      .run(hashPassword(body.password), req.user.id);
+    (await db.run("UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime('now') WHERE id = ?", hashPassword(body.password), req.user.id));
     // Encerra as outras sessões do usuário
-    db.prepare('DELETE FROM sessions WHERE user_id = ? AND id <> ?').run(req.user.id, req.session.id);
-    audit(db, req, 'trocou_senha', 'users', req.user.id);
+    (await db.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', req.user.id, req.session.id));
+    await audit(db, req, 'trocou_senha', 'users', req.user.id);
     res.json({ ok: true });
   });
 

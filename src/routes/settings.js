@@ -9,11 +9,11 @@ export function settingsRouter({ db }) {
   const r = Router();
   const s = (max) => z.string().trim().max(max).optional();
 
-  r.get('/settings', requirePerm('settings', 'r'), (req, res) => {
-    res.json({ ...getSettings(db), default_contract_template: DEFAULT_CONTRACT_TEMPLATE });
+  r.get('/settings', requirePerm('settings', 'r'), async (req, res) => {
+    res.json({ ...(await getSettings(db)), default_contract_template: DEFAULT_CONTRACT_TEMPLATE });
   });
 
-  r.put('/settings', requirePerm('settings', 'w'), (req, res) => {
+  r.put('/settings', requirePerm('settings', 'w'), async (req, res) => {
     const b = parse(z.object({
       company_name: z.string().trim().min(1, 'Informe o nome da empresa.').max(150),
       company_document: s(20),
@@ -26,18 +26,18 @@ export function settingsRouter({ db }) {
       whatsapp_form_message: s(1000),
       whatsapp_greeting: s(500),
     }), req.body);
-    saveSettings(db, b);
-    audit(db, req, 'alterou', 'settings');
-    res.json(getSettings(db));
+    await saveSettings(db, b);
+    await audit(db, req, 'alterou', 'settings');
+    res.json((await getSettings(db)));
   });
 
-  r.get('/permissions', requirePerm('users', 'r'), (req, res) => {
+  r.get('/permissions', requirePerm('users', 'r'), async (req, res) => {
     res.json({ matrix: MATRIX, modules: MODULES, roles: ROLE_LABELS });
   });
 
-  r.get('/audit', requirePerm('audit', 'r'), (req, res) => {
-    res.json(db.prepare(`SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-      ORDER BY a.id DESC LIMIT 300`).all());
+  r.get('/audit', requirePerm('audit', 'r'), async (req, res) => {
+    res.json((await db.all(`SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+      ORDER BY a.id DESC LIMIT 300`)));
   });
 
   return r;

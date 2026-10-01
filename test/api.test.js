@@ -250,3 +250,10 @@ test('respostas trazem cabeçalhos de segurança', async () => {
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(res.headers.get('x-powered-by'), null);
 });
+
+test('agendamentos simultâneos no mesmo horário: só um é aceito', async () => {
+  const tries = await Promise.all(Array.from({ length: 6 }, (_, i) => admin.post('/api/events',
+    newEvent({ title: `Simultâneo ${i}`, start_at: '2031-06-06T14:00' }))));
+  const statuses = tries.map((t) => t.status).sort();
+  assert.deepEqual(statuses, [201, 409, 409, 409, 409, 409]);
+});

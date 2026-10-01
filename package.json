@@ -5,16 +5,17 @@
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=22.13"
+    "node": ">=22.9"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/server.js",
-    "dev": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --watch src/server.js",
-    "seed:demo": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/db/seed-demo.js",
-    "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.js\"",
+    "start": "node --env-file-if-exists=.env src/server.js",
+    "dev": "node --env-file-if-exists=.env --watch src/server.js",
+    "seed:demo": "node --env-file-if-exists=.env src/db/seed-demo.js",
+    "test": "node --test \"test/**/*.test.js\"",
     "lint": "eslint ."
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",

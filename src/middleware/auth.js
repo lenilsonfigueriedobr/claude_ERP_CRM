@@ -18,29 +18,27 @@ export function cookieOptions(config) {
 }
 
 export function sessionMiddleware(db, config) {
-  const findSession = db.prepare(`
-    SELECT s.id AS session_id, s.csrf_token, s.expires_at,
-           u.id, u.name, u.email, u.role, u.active, u.must_change_password
-    FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.id = ?`);
-  const touch = db.prepare('UPDATE sessions SET expires_at = ? WHERE id = ?');
-  const drop = db.prepare('DELETE FROM sessions WHERE id = ?');
   const name = cookieName(config);
 
-  return (req, res, next) => {
+  return async (req, res, next) => {
     const token = req.cookies?.[name];
     if (!token || typeof token !== 'string' || token.length > 200) return next();
-    const row = findSession.get(sha256(token));
+    const row = await db.get(`
+      SELECT s.id AS session_id, s.csrf_token, s.expires_at,
+             u.id, u.name, u.email, u.role, u.active, u.must_change_password
+      FROM sessions s JOIN users u ON u.id = s.user_id
+      WHERE s.id = ?`, sha256(token));
     const now = Date.now();
     if (!row || Date.parse(row.expires_at) < now || !row.active) {
-      if (row) drop.run(row.session_id);
+      if (row) await db.run('DELETE FROM sessions WHERE id = ?', row.session_id);
       res.clearCookie(name, { path: '/' });
       return next();
     }
-    // Expiração deslizante: cada requisição renova o prazo de inatividade.
+    // Expiração deslizante: renova o prazo de inatividade, no máximo uma vez a cada 5 minutos
+    // para não gravar no banco a cada requisição.
     const ttl = config.sessionTtlHours * 3600 * 1000;
-    if (Date.parse(row.expires_at) - now < ttl - 60_000) {
-      touch.run(new Date(now + ttl).toISOString(), row.session_id);
+    if (Date.parse(row.expires_at) - now < ttl - 5 * 60_000) {
+      await db.run('UPDATE sessions SET expires_at = ? WHERE id = ?', new Date(now + ttl).toISOString(), row.session_id);
       res.cookie(name, token, cookieOptions(config));
     }
     req.user = { id: row.id, name: row.name, email: row.email, role: row.role, mustChangePassword: !!row.must_change_password };

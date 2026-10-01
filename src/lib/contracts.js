@@ -4,13 +4,13 @@ import { randomToken } from './security.js';
 
 const EVENT_TYPES_LABEL = (t) => t || 'evento social';
 
-export function contractVariables(db, eventId, number) {
-  const s = getSettings(db);
-  const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId);
-  const c = db.prepare('SELECT * FROM clients WHERE id = ?').get(ev.client_id);
-  const u = db.prepare('SELECT * FROM units WHERE id = ?').get(ev.unit_id);
-  const items = db.prepare('SELECT * FROM event_items WHERE event_id = ? ORDER BY id').all(eventId);
-  const parcels = db.prepare("SELECT * FROM transactions WHERE event_id = ? AND type = 'receber' AND status <> 'cancelado' ORDER BY due_date").all(eventId);
+export async function contractVariables(db, eventId, number) {
+  const s = await getSettings(db);
+  const ev = (await db.get('SELECT * FROM events WHERE id = ?', eventId));
+  const c = (await db.get('SELECT * FROM clients WHERE id = ?', ev.client_id));
+  const u = (await db.get('SELECT * FROM units WHERE id = ?', ev.unit_id));
+  const items = (await db.all('SELECT * FROM event_items WHERE event_id = ? ORDER BY id', eventId));
+  const parcels = (await db.all("SELECT * FROM transactions WHERE event_id = ? AND type = 'receber' AND status <> 'cancelado' ORDER BY due_date", eventId));
 
   const itemsText = items.length
     ? items.map((i) => `- ${i.quantity} x ${i.description}: ${brl(Math.round(i.quantity * i.unit_price_cents))}`).join('\n')
@@ -50,15 +50,16 @@ export function contractVariables(db, eventId, number) {
   };
 }
 
-export function nextContractNumber(db) {
+export async function nextContractNumber(db) {
   const year = new Date().getFullYear();
-  const row = db.prepare("SELECT number FROM contracts WHERE number LIKE ? ORDER BY id DESC LIMIT 1").get(`${year}-%`);
+  const row = (await db.get("SELECT number FROM contracts WHERE number LIKE ? ORDER BY id DESC LIMIT 1", `${year}-%`));
   const seq = row ? Number(row.number.split('-')[1]) + 1 : 1;
   return `${year}-${String(seq).padStart(4, '0')}`;
 }
 
-export function buildContract(db, eventId) {
-  const number = nextContractNumber(db);
-  const content = fillTemplate(getSettings(db).contract_template, contractVariables(db, eventId, number));
+export async function buildContract(db, eventId) {
+  const number = await nextContractNumber(db);
+  const { contract_template: template } = await getSettings(db);
+  const content = fillTemplate(template, await contractVariables(db, eventId, number));
   return { number, content, token: randomToken() };
 }

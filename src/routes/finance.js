@@ -23,101 +23,98 @@ const schema = z.object({
 export function financeRouter({ db }) {
   const r = Router();
 
-  const load = (txId) => db.prepare(`SELECT t.*, c.name AS client_name, e.title AS event_title FROM transactions t
-    LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN events e ON e.id = t.event_id WHERE t.id = ?`).get(txId);
+  const load = async (txId) => (await db.get(`SELECT t.*, c.name AS client_name, e.title AS event_title FROM transactions t
+    LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN events e ON e.id = t.event_id WHERE t.id = ?`, txId));
 
-  r.get('/finance/transactions', requirePerm('finance', 'r'), (req, res) => {
+  r.get('/finance/transactions', requirePerm('finance', 'r'), async (req, res) => {
     const type = ['receber', 'pagar'].includes(req.query.type) ? req.query.type : '';
     const status = ['pendente', 'pago', 'cancelado', 'vencido'].includes(req.query.status) ? req.query.status : '';
     const from = isValidDate(req.query.from) ? req.query.from : '';
     const to = isValidDate(req.query.to) ? req.query.to : '';
     const q = String(req.query.q || '').trim().slice(0, 100);
     const t = today();
-    const rows = db.prepare(`SELECT t.*, c.name AS client_name, c.whatsapp AS client_whatsapp, c.phone AS client_phone, e.title AS event_title,
+    const rows = (await db.all(`SELECT t.*, c.name AS client_name, c.whatsapp AS client_whatsapp, c.phone AS client_phone, e.title AS event_title,
         CASE WHEN t.status = 'pendente' AND t.due_date < ? THEN 1 ELSE 0 END AS overdue
       FROM transactions t LEFT JOIN clients c ON c.id = t.client_id LEFT JOIN events e ON e.id = t.event_id
       WHERE (? = '' OR t.type = ?)
         AND (? = '' OR (? = 'vencido' AND t.status = 'pendente' AND t.due_date < ?) OR (? <> 'vencido' AND t.status = ?))
         AND (? = '' OR t.due_date >= ?) AND (? = '' OR t.due_date <= ?)
         AND (? = '' OR t.description LIKE ? OR t.supplier LIKE ? OR c.name LIKE ? OR t.category LIKE ?)
-      ORDER BY t.due_date, t.id LIMIT 2000`)
-      .all(t, type, type, status, status, t, status, status, from, from, to, to, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+      ORDER BY t.due_date, t.id LIMIT 2000`, t, type, type, status, status, t, status, status, from, from, to, to, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`));
     res.json(rows);
   });
 
-  r.post('/finance/transactions', requirePerm('finance', 'w'), (req, res) => {
+  r.post('/finance/transactions', requirePerm('finance', 'w'), async (req, res) => {
     const b = parse(schema, req.body);
-    const info = db.prepare(`INSERT INTO transactions (type, description, category, amount_cents, due_date, payment_method, client_id, event_id,
-        supplier, document_number, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
-        b.document_number, b.notes, req.user.id);
-    audit(db, req, 'criou', 'transactions', Number(info.lastInsertRowid), { type: b.type, amount: b.amount_cents });
-    res.status(201).json(load(Number(info.lastInsertRowid)));
+    const info = (await db.run(`INSERT INTO transactions (type, description, category, amount_cents, due_date, payment_method, client_id, event_id,
+        supplier, document_number, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
+        b.document_number, b.notes, req.user.id));
+    await audit(db, req, 'criou', 'transactions', Number(info.lastInsertRowid), { type: b.type, amount: b.amount_cents });
+    res.status(201).json(await load(Number(info.lastInsertRowid)));
   });
 
-  r.put('/finance/transactions/:id', requirePerm('finance', 'w'), (req, res) => {
+  r.put('/finance/transactions/:id', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const current = db.prepare('SELECT status FROM transactions WHERE id = ?').get(txId);
+    const current = (await db.get('SELECT status FROM transactions WHERE id = ?', txId));
     if (!current) throw notFound('Lançamento não encontrado.');
     if (current.status !== 'pendente') throw badRequest('Apenas lançamentos pendentes podem ser editados. Estorne o pagamento antes.');
     const b = parse(schema, req.body);
-    db.prepare(`UPDATE transactions SET type = ?, description = ?, category = ?, amount_cents = ?, due_date = ?, payment_method = ?, client_id = ?,
-        event_id = ?, supplier = ?, document_number = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`)
-      .run(b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
-        b.document_number, b.notes, txId);
-    audit(db, req, 'alterou', 'transactions', txId);
-    res.json(load(txId));
+    (await db.run(`UPDATE transactions SET type = ?, description = ?, category = ?, amount_cents = ?, due_date = ?, payment_method = ?, client_id = ?,
+        event_id = ?, supplier = ?, document_number = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`, b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
+        b.document_number, b.notes, txId));
+    await audit(db, req, 'alterou', 'transactions', txId);
+    res.json(await load(txId));
   });
 
-  r.post('/finance/transactions/:id/pay', requirePerm('finance', 'w'), (req, res) => {
+  r.post('/finance/transactions/:id/pay', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
     const b = parse(z.object({
       paid_at: date('Data do pagamento'),
       paid_amount_cents: money('Valor pago').refine((v) => v > 0, 'O valor pago precisa ser maior que zero.'),
       payment_method: optText(40),
     }), req.body);
-    const tx = db.prepare('SELECT status FROM transactions WHERE id = ?').get(txId);
+    const tx = (await db.get('SELECT status FROM transactions WHERE id = ?', txId));
     if (!tx) throw notFound('Lançamento não encontrado.');
     if (tx.status !== 'pendente') throw badRequest('Este lançamento não está pendente.');
-    db.prepare(`UPDATE transactions SET status = 'pago', paid_at = ?, paid_amount_cents = ?, payment_method = COALESCE(?, payment_method),
-      updated_at = datetime('now') WHERE id = ?`).run(b.paid_at, b.paid_amount_cents, b.payment_method, txId);
-    audit(db, req, 'baixou', 'transactions', txId, b);
-    res.json(load(txId));
+    (await db.run(`UPDATE transactions SET status = 'pago', paid_at = ?, paid_amount_cents = ?, payment_method = COALESCE(?, payment_method),
+      updated_at = datetime('now') WHERE id = ?`, b.paid_at, b.paid_amount_cents, b.payment_method, txId));
+    await audit(db, req, 'baixou', 'transactions', txId, b);
+    res.json(await load(txId));
   });
 
-  r.post('/finance/transactions/:id/reopen', requirePerm('finance', 'w'), (req, res) => {
+  r.post('/finance/transactions/:id/reopen', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const info = db.prepare(`UPDATE transactions SET status = 'pendente', paid_at = NULL, paid_amount_cents = NULL, updated_at = datetime('now')
-      WHERE id = ? AND status IN ('pago','cancelado')`).run(txId);
+    const info = (await db.run(`UPDATE transactions SET status = 'pendente', paid_at = NULL, paid_amount_cents = NULL, updated_at = datetime('now')
+      WHERE id = ? AND status IN ('pago','cancelado')`, txId));
     if (!info.changes) throw badRequest('Lançamento não pode ser reaberto.');
-    audit(db, req, 'reabriu', 'transactions', txId);
-    res.json(load(txId));
+    await audit(db, req, 'reabriu', 'transactions', txId);
+    res.json(await load(txId));
   });
 
-  r.post('/finance/transactions/:id/cancel', requirePerm('finance', 'w'), (req, res) => {
+  r.post('/finance/transactions/:id/cancel', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const info = db.prepare("UPDATE transactions SET status = 'cancelado', updated_at = datetime('now') WHERE id = ? AND status = 'pendente'").run(txId);
+    const info = (await db.run("UPDATE transactions SET status = 'cancelado', updated_at = datetime('now') WHERE id = ? AND status = 'pendente'", txId));
     if (!info.changes) throw badRequest('Apenas lançamentos pendentes podem ser cancelados.');
-    audit(db, req, 'cancelou', 'transactions', txId);
-    res.json(load(txId));
+    await audit(db, req, 'cancelou', 'transactions', txId);
+    res.json(await load(txId));
   });
 
-  r.delete('/finance/transactions/:id', requirePerm('finance', 'w'), (req, res) => {
+  r.delete('/finance/transactions/:id', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const tx = db.prepare('SELECT status FROM transactions WHERE id = ?').get(txId);
+    const tx = (await db.get('SELECT status FROM transactions WHERE id = ?', txId));
     if (!tx) throw notFound('Lançamento não encontrado.');
     if (tx.status === 'pago') throw badRequest('Lançamentos pagos não podem ser excluídos. Estorne o pagamento antes.');
-    db.prepare('DELETE FROM transactions WHERE id = ?').run(txId);
-    audit(db, req, 'excluiu', 'transactions', txId);
+    (await db.run('DELETE FROM transactions WHERE id = ?', txId));
+    await audit(db, req, 'excluiu', 'transactions', txId);
     res.json({ ok: true });
   });
 
-  r.get('/finance/summary', requirePerm('finance', 'r'), (req, res) => {
-    res.json(financeSummary(db));
+  r.get('/finance/summary', requirePerm('finance', 'r'), async (req, res) => {
+    res.json(await financeSummary(db));
   });
 
   // Fluxo de caixa: realizado (pagos) e previsto (pendentes), agrupado por dia ou mês.
-  r.get('/finance/cashflow', requirePerm('finance', 'r'), (req, res) => {
+  r.get('/finance/cashflow', requirePerm('finance', 'r'), async (req, res) => {
     const from = isValidDate(req.query.from) ? req.query.from : `${today().slice(0, 8)}01`;
     const to = isValidDate(req.query.to) ? req.query.to : fromMinutes(toMinutes(`${from}T00:00`) + 31 * 1440 - 1).slice(0, 10);
     if (to < from) throw badRequest('Período inválido.');
@@ -126,16 +123,16 @@ export function financeRouter({ db }) {
     const byMonth = req.query.group === 'month' || (req.query.group !== 'day' && days > 62);
     const len = byMonth ? 7 : 10;
 
-    const opening = db.prepare(`SELECT COALESCE(SUM(CASE WHEN type = 'receber' THEN paid_amount_cents ELSE -paid_amount_cents END), 0) AS v
-      FROM transactions WHERE status = 'pago' AND paid_at < ?`).get(from).v;
-    const realized = db.prepare(`SELECT substr(paid_at, 1, ${len}) AS period,
+    const opening = (await db.get(`SELECT COALESCE(SUM(CASE WHEN type = 'receber' THEN paid_amount_cents ELSE -paid_amount_cents END), 0) AS v
+      FROM transactions WHERE status = 'pago' AND paid_at < ?`, from)).v;
+    const realized = (await db.all(`SELECT substr(paid_at, 1, ${len}) AS period,
         SUM(CASE WHEN type = 'receber' THEN paid_amount_cents ELSE 0 END) AS inflow,
         SUM(CASE WHEN type = 'pagar' THEN paid_amount_cents ELSE 0 END) AS outflow
-      FROM transactions WHERE status = 'pago' AND paid_at BETWEEN ? AND ? GROUP BY period`).all(from, to);
-    const projected = db.prepare(`SELECT substr(due_date, 1, ${len}) AS period,
+      FROM transactions WHERE status = 'pago' AND paid_at BETWEEN ? AND ? GROUP BY period`, from, to));
+    const projected = (await db.all(`SELECT substr(due_date, 1, ${len}) AS period,
         SUM(CASE WHEN type = 'receber' THEN amount_cents ELSE 0 END) AS inflow,
         SUM(CASE WHEN type = 'pagar' THEN amount_cents ELSE 0 END) AS outflow
-      FROM transactions WHERE status = 'pendente' AND due_date BETWEEN ? AND ? GROUP BY period`).all(from, to);
+      FROM transactions WHERE status = 'pendente' AND due_date BETWEEN ? AND ? GROUP BY period`, from, to));
 
     const periods = [];
     if (byMonth) {
@@ -170,18 +167,17 @@ export function financeRouter({ db }) {
   return r;
 }
 
-export function financeSummary(db) {
+export async function financeSummary(db) {
   const t = today();
   const monthStart = `${t.slice(0, 8)}01`;
-  const sum = (sql, ...args) => db.prepare(sql).get(...args).v;
-  return {
-    receivable_pending: sum("SELECT COALESCE(SUM(amount_cents),0) v FROM transactions WHERE type='receber' AND status='pendente'"),
-    receivable_overdue: sum("SELECT COALESCE(SUM(amount_cents),0) v FROM transactions WHERE type='receber' AND status='pendente' AND due_date < ?", t),
-    payable_pending: sum("SELECT COALESCE(SUM(amount_cents),0) v FROM transactions WHERE type='pagar' AND status='pendente'"),
-    payable_overdue: sum("SELECT COALESCE(SUM(amount_cents),0) v FROM transactions WHERE type='pagar' AND status='pendente' AND due_date < ?", t),
-    month_in: sum("SELECT COALESCE(SUM(paid_amount_cents),0) v FROM transactions WHERE type='receber' AND status='pago' AND paid_at >= ?", monthStart),
-    month_out: sum("SELECT COALESCE(SUM(paid_amount_cents),0) v FROM transactions WHERE type='pagar' AND status='pago' AND paid_at >= ?", monthStart),
-    balance: sum("SELECT COALESCE(SUM(CASE WHEN type='receber' THEN paid_amount_cents ELSE -paid_amount_cents END),0) v FROM transactions WHERE status='pago'"),
-  };
+  // Uma única consulta: no banco remoto cada ida e volta custa latência.
+  return db.get(`SELECT
+      COALESCE(SUM(CASE WHEN type = 'receber' AND status = 'pendente' THEN amount_cents END), 0) AS receivable_pending,
+      COALESCE(SUM(CASE WHEN type = 'receber' AND status = 'pendente' AND due_date < ? THEN amount_cents END), 0) AS receivable_overdue,
+      COALESCE(SUM(CASE WHEN type = 'pagar' AND status = 'pendente' THEN amount_cents END), 0) AS payable_pending,
+      COALESCE(SUM(CASE WHEN type = 'pagar' AND status = 'pendente' AND due_date < ? THEN amount_cents END), 0) AS payable_overdue,
+      COALESCE(SUM(CASE WHEN type = 'receber' AND status = 'pago' AND paid_at >= ? THEN paid_amount_cents END), 0) AS month_in,
+      COALESCE(SUM(CASE WHEN type = 'pagar' AND status = 'pago' AND paid_at >= ? THEN paid_amount_cents END), 0) AS month_out,
+      COALESCE(SUM(CASE WHEN status = 'pago' THEN CASE WHEN type = 'receber' THEN paid_amount_cents ELSE -paid_amount_cents END END), 0) AS balance
+    FROM transactions`, t, t, monthStart, monthStart);
 }
-

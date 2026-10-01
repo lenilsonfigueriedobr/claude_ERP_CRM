@@ -43,16 +43,19 @@ export const DEFAULT_SETTINGS = {
 
 export const SETTING_KEYS = Object.keys(DEFAULT_SETTINGS);
 
-export function getSettings(db) {
-  const rows = db.prepare('SELECT key, value FROM settings').all();
+export async function getSettings(db) {
+  const rows = (await db.all('SELECT key, value FROM settings'));
   const out = { ...DEFAULT_SETTINGS };
   for (const r of rows) if (r.key in out) out[r.key] = r.value ?? '';
   return out;
 }
 
-export function saveSettings(db, values) {
-  const stmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
-  for (const key of SETTING_KEYS) if (key in values) stmt.run(key, values[key] ?? '');
+export async function saveSettings(db, values) {
+  for (const key of SETTING_KEYS) {
+    if (key in values) {
+      await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, values[key] ?? '');
+    }
+  }
 }
 
 export function fillTemplate(template, vars) {

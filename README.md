@@ -14,7 +14,7 @@ No celular: [painel](docs/screenshots/10-celular-painel.png) e [menu](docs/scree
 
 ## Como rodar
 
-Precisa do Node.js 22.13 ou mais novo. Não tem etapa de build e o banco é um arquivo SQLite (usa o `node:sqlite` nativo do Node, sem dependência compilada).
+Precisa do Node.js 22.9 ou mais novo. Não tem etapa de build. No seu computador o banco é um arquivo SQLite em `data/erp.db`; em produção é o Turso, que usa o mesmo SQL (veja [Publicar no Vercel](#publicar-no-vercel)).
 
 ```bash
 npm install
@@ -98,6 +98,56 @@ A Meta só aceita mensagem livre quando o cliente falou com a empresa nas últim
 
 Os links públicos usam tokens aleatórios de 256 bits. Formulários expiram em 15 dias e só aceitam uma resposta.
 
+## Publicar no Vercel
+
+O Vercel roda o sistema como função serverless e serve as páginas pela CDN. Como o disco das funções é apagado a cada execução, o banco precisa ficar fora: o sistema usa o [Turso](https://turso.tech), um SQLite hospedado que tem plano gratuito. Sem o Turso configurado, a função se recusa a subir, de propósito, para você não perder dados achando que estão salvos.
+
+**1. Crie o banco no Turso.** Crie a conta, crie um banco na região mais perto dos seus usuários e gere um token de acesso. Dá para fazer pelo painel do Turso ou pelo terminal:
+
+```bash
+turso db create eventos
+turso db show eventos --url          # libsql://eventos-xxxx.turso.io
+turso db tokens create eventos       # token de acesso
+```
+
+Se preferir, instale a integração do Turso pelo marketplace do Vercel: ela cria o banco e já preenche as variáveis.
+
+**2. Importe o repositório no Vercel.** Em *Add New > Project*, escolha o repositório. Não precisa mudar nada nas opções de build: o `vercel.json` já diz que as páginas saem de `public/` e que `api/index.js` é a função.
+
+**3. Configure as variáveis** em *Settings > Environment Variables*:
+
+| Variável | Obrigatória | Valor |
+|---|---|---|
+| `TURSO_DATABASE_URL` | sim | a URL `libsql://...` do passo 1 |
+| `TURSO_AUTH_TOKEN` | sim | o token do passo 1 |
+| `ADMIN_EMAIL` | sim | e-mail do primeiro administrador |
+| `ADMIN_PASSWORD` | sim | senha inicial (8+ caracteres, letras e números) |
+| `ADMIN_NAME` | não | nome do administrador |
+| `APP_URL` | não | só se usar domínio próprio, ex. `https://gestao.suaempresa.com.br` |
+| `WHATSAPP_TOKEN` e `WHATSAPP_PHONE_NUMBER_ID` | não | para enviar pela API oficial do WhatsApp |
+
+**4. Faça o deploy.** Na primeira requisição o sistema cria as tabelas e o administrador. Entre com `ADMIN_EMAIL` e `ADMIN_PASSWORD` e troque a senha em *Trocar senha*. Depois disso você pode apagar `ADMIN_PASSWORD` do Vercel: ela só é usada quando o banco está vazio.
+
+**Dados de demonstração no Turso (opcional).** Rode no seu computador apontando para o banco remoto:
+
+```bash
+TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run seed:demo
+```
+
+**Como fica no Vercel**
+
+- `api/index.js` é a função que atende `/api/*`. Ela inicializa o app uma vez por instância e reaproveita nas próximas requisições.
+- Os links públicos `/p/contrato/...` e `/p/formulario/...` são reescritos para as páginas estáticas, que buscam os dados na API.
+- Os cabeçalhos de segurança (CSP, HSTS, anti-iframe) das páginas estáticas estão no `vercel.json`; os da API vêm do Helmet.
+- Em produção o cookie de sessão usa o prefixo `__Host-`, só trafega em HTTPS e o sistema confia no IP repassado pelo proxy do Vercel.
+- Os links enviados por WhatsApp usam o domínio de produção do projeto. Em deploys de prévia, usam o endereço da própria prévia.
+
+**Limites que vale conhecer**
+
+- O limite de requisições por IP fica na memória de cada instância. Com várias instâncias ele é menos rígido. O bloqueio de conta após 5 senhas erradas fica no banco e continua valendo sempre.
+- A primeira requisição depois de um tempo parado demora um pouco mais (partida a frio da função).
+- Backup: o Turso guarda histórico e permite restaurar o banco para um ponto no tempo, conforme o plano.
+
 ## Segurança
 
 - Senhas com `scrypt` e sal individual. Mínimo de 8 caracteres com letras e números.
@@ -110,15 +160,19 @@ Os links públicos usam tokens aleatórios de 256 bits. Formulários expiram em 
 - Auditoria das ações sensíveis (login, alterações, pagamentos, bloqueios, aceite de contrato com IP).
 - Troca de perfil ou desativação derruba as sessões do usuário. O sistema não deixa ficar sem administrador ativo.
 
-Para produção: rode atrás de HTTPS, defina `NODE_ENV=production`, `APP_URL` com o domínio real e `TRUST_PROXY=1` se houver proxy reverso. Faça backup do arquivo do banco (`data/erp.db`).
+Em servidor próprio (fora do Vercel): rode atrás de HTTPS, defina `NODE_ENV=production`, `APP_URL` com o domínio real e `TRUST_PROXY=1` se houver proxy reverso. Use o Turso ou faça backup do arquivo `data/erp.db`.
 
 ## Estrutura
 
 ```
+api/index.js           função serverless do Vercel
+vercel.json            rotas, páginas estáticas e cabeçalhos no Vercel
 src/
-  server.js            inicialização
+  server.js            servidor local (npm start)
+  boot.js              inicialização compartilhada: banco, migrações e administrador
   app.js               Express, segurança e rotas
   config.js            leitura do .env
+  db/index.js          acesso ao banco (arquivo local, memória ou Turso) e transações
   db/                  migrações, criação do admin e dados de demonstração
   lib/eventRules.js    regras de agenda (funções puras, testadas)
   lib/schedule.js      checagem de conflito, bloqueio e capacidade no banco

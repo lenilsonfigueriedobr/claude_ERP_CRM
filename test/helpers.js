@@ -1,15 +1,8 @@
-import { loadConfig } from '../src/config.js';
-import { openDb } from '../src/db/index.js';
-import { ensureAdmin } from '../src/db/bootstrap.js';
-import { createApp } from '../src/app.js';
+import { boot } from '../src/boot.js';
 
 export async function startServer() {
-  const config = loadConfig({ dbPath: ':memory:', env: 'test', logRequests: false, rateLimit: false,
+  const { app, db, config } = await boot({ db: { url: process.env.TEST_DB_URL || ':memory:' }, env: 'test', isProduction: false, logRequests: false, rateLimit: false,
     admin: { name: 'Admin', email: 'admin@teste.com', password: 'Senha1234' }, whatsapp: { token: '', phoneNumberId: '' } });
-  config.isProduction = false;
-  const db = openDb(':memory:');
-  ensureAdmin(db, config, () => {});
-  const app = createApp({ db, config });
   const server = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
   config.appUrl = base;
