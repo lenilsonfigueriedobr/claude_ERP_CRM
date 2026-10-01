@@ -2,6 +2,16 @@
 
 Sistema web para empresas de eventos. Junta agenda das unidades, clientes, funil de vendas, contratos, financeiro e estoque num lugar só, com envio de contrato e formulário pelo WhatsApp. Funciona no computador, tablet e celular.
 
+## Telas
+
+| Painel com calendário | Novo evento barrando conflito |
+|---|---|
+| ![Painel](docs/screenshots/01-painel-calendario.png) | ![Conflito](docs/screenshots/02-novo-evento-conflito.png) |
+| **Funil de vendas** | **Fluxo de caixa** |
+| ![Funil](docs/screenshots/04-funil-de-vendas.png) | ![Fluxo de caixa](docs/screenshots/05-fluxo-de-caixa.png) |
+
+No celular: [painel](docs/screenshots/10-celular-painel.png) e [menu](docs/screenshots/11-celular-menu.png). As demais telas estão em `docs/screenshots`.
+
 ## Como rodar
 
 Precisa do Node.js 22.13 ou mais novo. Não tem etapa de build e o banco é um arquivo SQLite (usa o `node:sqlite` nativo do Node, sem dependência compilada).
