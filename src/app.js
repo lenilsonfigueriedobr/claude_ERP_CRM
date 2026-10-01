@@ -77,7 +77,6 @@ export function createApp({ db, config }) {
   app.get('/p/formulario/:token', (req, res) => res.sendFile(path.join(pub, 'form.html')));
   app.get(/^\/(?!api\/).*/, (req, res) => res.sendFile(path.join(pub, 'index.html')));
 
-  // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
     if (err instanceof ZodError) return res.status(400).json({ error: zodMessage(err) });
     if (err instanceof AppError) return res.status(err.status).json({ error: err.message, details: err.details });

@@ -125,7 +125,7 @@ img, svg { display: block; }
 }
 .topbar.scrolled { border-bottom-color: var(--border); }
 .topbar-title { font-weight: 650; font-size: 1.05rem; }
-.menu-btn { display: none; }
+.topbar .menu-btn { display: none; }
 .content { padding: 8px 28px 48px; max-width: 1480px; width: 100%; }
 
 .user-chip { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 6px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; }
@@ -149,7 +149,6 @@ img, svg { display: block; }
 .card-pad { padding: 20px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .card-body { padding: 20px; }
-.card + .card { margin-top: 16px; }
 .grid { display: grid; gap: 16px; }
 .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -343,7 +342,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .legend-pre { width: 14px; height: 10px; border-radius: 3px; border: 1px dashed var(--muted); }
 
 .day-panel { position: sticky; top: calc(var(--topbar-h) + 8px); }
-.day-title { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 600; text-transform: capitalize; }
+.day-title { font-family: var(--font-serif); font-size: 1.25rem; font-weight: 600; }
 .day-list { display: flex; flex-direction: column; gap: 10px; }
 .day-ev { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; background: var(--surface); text-align: left; width: 100%; font: inherit; }
 .day-ev:hover { border-color: var(--primary); box-shadow: var(--shadow); }
@@ -363,7 +362,7 @@ table.table { width: 100%; border-collapse: collapse; }
 .meter > i { display: block; height: 100%; border-radius: 99px; background: var(--primary); }
 
 /* ---------- Kanban ---------- */
-.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(270px, 1fr); gap: 14px; overflow-x: auto; padding-bottom: 12px; scroll-snap-type: x proximity; }
+.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(250px, 1fr); gap: 14px; overflow-x: auto; padding-bottom: 12px; scroll-snap-type: x proximity; }
 .kcol { background: var(--surface-3); border-radius: var(--radius); display: flex; flex-direction: column; min-height: 300px; scroll-snap-align: start; border: 1px solid transparent; }
 .kcol.drag-over { border-color: var(--primary); background: var(--primary-50); }
 .kcol-head { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
@@ -435,7 +434,7 @@ table.table { width: 100%; border-collapse: collapse; }
   }
   .sidebar.open { transform: none; }
   .scrim.show { display: block; position: fixed; inset: 0; z-index: 80; background: rgba(31, 28, 46, .35); }
-  .menu-btn { display: inline-flex; }
+  .topbar .menu-btn { display: inline-flex; }
   .topbar, .content { padding-left: 20px; padding-right: 20px; }
   .dash-grid, .detail-grid { grid-template-columns: 1fr; }
   .day-panel { position: static; }
@@ -470,7 +469,8 @@ table.table { width: 100%; border-collapse: collapse; }
   /* Tabelas viram cartões */
   table.table.responsive thead { display: none; }
   table.table.responsive, .table.responsive tbody, .table.responsive tr, .table.responsive td { display: block; width: 100%; }
-  .table.responsive tr { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .table.responsive tr { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; }
+  .table.responsive td.primary-cell { order: -1; }
   .table.responsive td { border: 0; padding: 3px 0; display: flex; justify-content: space-between; gap: 12px; text-align: right; }
   .table.responsive td::before { content: attr(data-label); color: var(--muted); font-size: .78rem; font-weight: 600; text-align: left; flex: none; }
   .table.responsive td.primary-cell { display: block; text-align: left; padding-bottom: 6px; }

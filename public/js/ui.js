@@ -88,6 +88,12 @@ export function toastError(err) {
 
 // ---------- Modal ----------
 let openModals = 0;
+const modalClosers = new Set();
+
+// Fecha todas as janelas abertas (usado ao trocar de tela).
+export function closeAllModals() {
+  for (const close of [...modalClosers]) close();
+}
 
 export function modal({ title, body, footer, size = '', onClose } = {}) {
   const previousFocus = document.activeElement;
@@ -103,6 +109,7 @@ export function modal({ title, body, footer, size = '', onClose } = {}) {
   const close = () => {
     if (closed) return;
     closed = true;
+    modalClosers.delete(close);
     backdrop.remove();
     document.removeEventListener('keydown', onKey);
     openModals -= 1;
@@ -117,6 +124,7 @@ export function modal({ title, body, footer, size = '', onClose } = {}) {
   backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) close(); });
   document.addEventListener('keydown', onKey);
   document.body.append(backdrop);
+  modalClosers.add(close);
   openModals += 1;
   document.body.style.overflow = 'hidden';
   setTimeout(() => {
@@ -160,12 +168,14 @@ export function promptDialog(message, { title = 'Informe', label = 'Motivo', req
 }
 
 // ---------- Formulários ----------
-export function field(label, control, { hint, span = 12, required, cls = '' } = {}) {
+export function field(label, control, { hint, span = 12, required, cls = '', action } = {}) {
   const id = control.id || `f${Math.random().toString(36).slice(2, 9)}`;
   control.id = id;
   if (required) control.required = true;
+  const labelEl = h('label', { for: id, class: required ? 'req' : null }, label);
   return h('div', { class: `field ${span !== 12 ? `s${span}` : ''} ${cls}` },
-    h('label', { for: id, class: required ? 'req' : null }, label), control, hint ? h('div', { class: 'hint' }, hint) : null);
+    action ? h('div', { class: 'row between', style: { gap: '8px', minHeight: '20px' } }, labelEl, action) : labelEl,
+    control, hint ? h('div', { class: 'hint' }, hint) : null);
 }
 
 export function input(name, value = '', attrs = {}) {

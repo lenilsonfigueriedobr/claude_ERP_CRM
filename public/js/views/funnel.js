@@ -98,12 +98,12 @@ export async function openDealForm(deal, onSaved) {
   const d = deal || {};
   const isEdit = !!d.id;
   const clientSel = select('client_id', [{ value: '', label: 'Selecione o cliente' }, ...clients.map((c) => ({ value: c.id, label: c.name }))], d.client_id || '');
-  const clientField = field('Cliente', clientSel, { span: 6, required: true });
-  clientField.querySelector('label').classList.add('row', 'between');
-  clientField.querySelector('label').append(btn('Novo', { icon: 'plus', size: 'sm', variant: 'ghost', onClick: () => openClientForm(null, (c) => {
+  const newClient = btn('Novo', { icon: 'plus', size: 'sm', variant: 'ghost', onClick: () => openClientForm(null, (c) => {
     clientSel.append(h('option', { value: c.id }, c.name));
     clientSel.value = c.id;
-  }) }));
+  }) });
+  newClient.style.minHeight = '22px';
+  const clientField = field('Cliente', clientSel, { span: 6, required: true, action: newClient });
 
   formModal({
     title: isEdit ? 'Editar negociação' : 'Nova negociação',

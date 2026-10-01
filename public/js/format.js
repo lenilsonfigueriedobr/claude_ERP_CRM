@@ -54,7 +54,8 @@ export function timeRange(start, end) {
 export function longDate(iso) {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
   const wd = new Date(y, m - 1, d).getDay();
-  return `${WEEKDAYS[wd]}, ${d} de ${MONTHS[m - 1]}`;
+  const w = WEEKDAYS[wd];
+  return `${w[0].toUpperCase()}${w.slice(1)}, ${d} de ${MONTHS[m - 1]}`;
 }
 
 export const monthName = (m) => MONTHS[m];

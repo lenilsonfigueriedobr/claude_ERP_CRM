@@ -25,7 +25,7 @@ export async function render(root) {
 
   mount(root,
     h('div', { class: 'page-head' },
-      h('div', h('h1', `Olá, ${store.me.user.name.split(' ')[0]}`), h('p', `Hoje é ${longDate(t)}. Clique em um dia do calendário para ver ou criar eventos.`)),
+      h('div', h('h1', `Olá, ${store.me.user.name.split(' ')[0]}`), h('p', `Hoje é ${longDate(t).toLowerCase()}. Clique em um dia do calendário para ver ou criar eventos.`)),
       can('events', 'w') ? h('div', { class: 'btn-group' }, btn('Novo evento', { variant: 'primary', icon: 'plus', onClick: () => newEvent(state.selected) })) : null),
     kpis,
     h('div', { class: 'dash-grid mt' }, calCard, dayPanel),
@@ -74,7 +74,7 @@ export async function render(root) {
         onClick: () => { state.selected = day; renderCalendar(gridStart); renderDay(); if (window.innerWidth < 1024) dayPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
         h('div', { class: 'cal-num-row' },
           h('span', { class: 'cal-num' }, Number(day.slice(8))),
-          blocks.length ? h('span', { class: 'cal-lock', title: blocks.map((b) => b.reason || 'Bloqueado').join(', ') }, ic('lock'), h('span', 'Bloqueado')) : null),
+          blocks.length ? h('span', { class: 'cal-lock', title: blocks.map((b) => b.reason || 'Bloqueado').join(', ') }, ic('lock')) : null),
         evs.slice(0, 3).map((e) => {
           const chip = h('span', { class: `cal-ev ${e.status}`, title: `${timeRange(e.start_at, e.end_at)} · ${e.title} · ${e.unit_name}` },
             h('b', e.start_at.slice(0, 10) === day ? hm(e.start_at) : '↳'), ' ', e.title);

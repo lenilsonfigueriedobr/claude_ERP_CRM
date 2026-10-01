@@ -65,7 +65,8 @@ export function csrfProtection() {
     if (req.body && Object.keys(req.body).length && !req.is('application/json')) {
       return next(forbidden('Formato de requisição não suportado.'));
     }
-    if (req.session && !safeEqual(req.get('x-csrf-token') || '', req.session.csrf)) {
+    // Rotas públicas (links do cliente) não usam a sessão, então não exigem o token.
+    if (req.session && !req.path.startsWith('/public/') && !safeEqual(req.get('x-csrf-token') || '', req.session.csrf)) {
       return next(forbidden('Sessão inválida. Recarregue a página.'));
     }
     next();

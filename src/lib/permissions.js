@@ -32,14 +32,14 @@ export const MATRIX = {
   gerente: { ...ALL_W, users: null, settings: 'r', audit: null },
   financeiro: {
     dashboard: 'r', events: 'r', units: 'r', crm: 'r', contracts: 'r',
-    finance: 'w', products: 'r', stock: 'r', whatsapp: 'w', settings: 'r',
+    finance: 'w', products: 'r', stock: 'r', whatsapp: 'w',
   },
   comercial: {
     dashboard: 'r', events: 'w', units: 'r', crm: 'w', contracts: 'w',
-    products: 'r', stock: 'r', whatsapp: 'w', settings: 'r',
+    products: 'r', stock: 'r', whatsapp: 'w',
   },
   operador: {
-    dashboard: 'r', events: 'r', units: 'r', stock: 'w', products: 'r', settings: 'r',
+    dashboard: 'r', events: 'r', units: 'r', stock: 'w', products: 'r',
   },
 };
 

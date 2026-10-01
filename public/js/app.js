@@ -1,4 +1,4 @@
-import { h, mount, btn, ic, dropdown, toastError, loading, modal, alertBox, formModal, field, input, toast } from './ui.js';
+import { h, mount, btn, ic, dropdown, toastError, loading, modal, alertBox, formModal, field, input, toast, closeAllModals } from './ui.js';
 import { get, post, setCsrf, setUnauthorizedHandler } from './api.js';
 import { store, can } from './store.js';
 import { initials } from './format.js';
@@ -106,6 +106,7 @@ async function route() {
   if (!store.me) return;
   const path = currentPath();
   const token = ++renderToken;
+  closeAllModals();
   for (const a of sidebarEl.querySelectorAll('.nav a')) {
     const p = a.dataset.path;
     a.classList.toggle('active', p === '/' ? path === '/' : path.startsWith(p));
@@ -221,8 +222,7 @@ export function changePassword(forced = false) {
 setUnauthorizedHandler(() => {
   if (!store.me) return;
   store.me = null;
-  document.querySelectorAll('.modal-backdrop').forEach((el) => el.remove());
-  document.body.style.overflow = '';
+  closeAllModals();
   renderLogin('Sua sessão expirou. Entre novamente.');
 });
 

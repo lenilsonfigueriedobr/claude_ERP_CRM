@@ -172,9 +172,8 @@ export async function openEventForm({ event = null, date = null, unitId = null, 
   }
 
   // ---------- Montagem ----------
-  const clientField = field('Cliente', clientSel, { span: 6, required: true });
-  if (newClientBtn) clientField.querySelector('label').append(' ', newClientBtn);
-  clientField.querySelector('label').classList.add('row', 'between');
+  if (newClientBtn) newClientBtn.style.minHeight = '22px';
+  const clientField = field('Cliente', clientSel, { span: 6, required: true, action: newClientBtn });
 
   formModal({
     title: event ? 'Editar evento' : 'Novo evento',

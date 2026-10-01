@@ -231,3 +231,22 @@ test('não permite remover o último administrador', async () => {
   const r = await admin.put(`/api/users/${me.data.user.id}`, { name: 'Admin', email: 'admin@teste.com', role: 'gerente', active: true });
   assert.equal(r.status, 400);
 });
+
+test('link público funciona mesmo com funcionário logado no navegador', async () => {
+  const ev = await admin.post('/api/events', newEvent({ start_at: '2031-03-01T12:00' }));
+  const ct = await admin.post('/api/contracts', { event_id: ev.data.id });
+  const staff = client(srv.base);
+  await staff.login('com@teste.com', 'Senha1234');
+  staff.setCsrf('');
+  const r = await staff.post(`/api/public/contracts/${ct.data.public_token}/accept`, { name: 'Maria', document: '12345678909', agree: true });
+  assert.equal(r.status, 200);
+  // mas rotas internas continuam exigindo o token
+  assert.equal((await staff.post('/api/clients', { name: 'X' })).status, 403);
+});
+
+test('respostas trazem cabeçalhos de segurança', async () => {
+  const res = await fetch(`${srv.base}/`);
+  assert.match(res.headers.get('content-security-policy'), /script-src 'self'/);
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(res.headers.get('x-powered-by'), null);
+});
