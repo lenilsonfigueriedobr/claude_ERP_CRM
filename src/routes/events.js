@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z, parse, text, optText, id, optId, money, dateTime, date } from '../lib/validate.js';
 import { badRequest, notFound, conflict } from '../lib/errors.js';
 import { requirePerm } from '../middleware/auth.js';
-import { checkSchedule, assertSchedule, describeConflict, eventsOnDate } from '../lib/schedule.js';
+import { checkSchedule, assertSchedule, describeConflict, eventsInDays, AGENDA_LOCK } from '../lib/schedule.js';
 import { DURATION_PRESETS_HOURS, MIN_GAP_MINUTES, isValidDate, toMinutes, fromMinutes } from '../lib/eventRules.js';
 import { moveStock } from '../lib/stock.js';
 import { audit } from '../lib/audit.js';
@@ -85,7 +85,7 @@ export function eventsRouter({ db }) {
         (SELECT COUNT(*) FROM contracts ct WHERE ct.event_id = e.id AND ct.status <> 'cancelado') AS contracts_count
       FROM events e JOIN clients c ON c.id = e.client_id JOIN units u ON u.id = e.unit_id
       WHERE (? = '' OR e.end_at >= ?) AND (? = '' OR e.start_at <= ?) AND (? = 0 OR e.unit_id = ?) AND (? = 0 OR e.client_id = ?)
-        AND (? = '' OR e.status = ?) AND (? = '' OR e.title LIKE ? OR c.name LIKE ?)
+        AND (? = '' OR e.status = ?) AND (? = '' OR e.title ILIKE ? OR c.name ILIKE ?)
       ORDER BY e.start_at LIMIT 1000`, from, from, to, to, unitId, unitId, clientId, clientId, status, status, q, `%${q}%`, `%${q}%`)));
   });
 
@@ -132,7 +132,7 @@ export function eventsRouter({ db }) {
       const newId = Number(info.lastInsertRowid);
       await saveItems(tx, newId, b.items);
       if (b.deal_id) {
-        (await tx.run("UPDATE deals SET stage = 'ganho', closed_at = COALESCE(closed_at, datetime('now')), updated_at = datetime('now') WHERE id = ?", b.deal_id));
+        (await tx.run("UPDATE deals SET stage = 'ganho', closed_at = COALESCE(closed_at, now_text()), updated_at = now_text() WHERE id = ?", b.deal_id));
       }
       return newId;
     });
@@ -156,7 +156,7 @@ export function eventsRouter({ db }) {
     await db.transaction(async (tx) => {
       const { endAt } = await assertSchedule(tx, { unitId: b.unit_id, startAt: b.start_at, durationMinutes: b.duration_minutes, excludeId: eventId, guests: b.guests });
       (await tx.run(`UPDATE events SET title = ?, client_id = ?, unit_id = ?, deal_id = ?, event_type = ?, start_at = ?, end_at = ?,
-          duration_minutes = ?, guests = ?, status = ?, discount_cents = ?, total_cents = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`, b.title, b.client_id, b.unit_id, b.deal_id, b.event_type, b.start_at, endAt, b.duration_minutes, b.guests,
+          duration_minutes = ?, guests = ?, status = ?, discount_cents = ?, total_cents = ?, notes = ?, updated_at = now_text() WHERE id = ?`, b.title, b.client_id, b.unit_id, b.deal_id, b.event_type, b.start_at, endAt, b.duration_minutes, b.guests,
           b.status, b.discount_cents, total, b.notes, eventId));
       await saveItems(tx, eventId, b.items);
     });
@@ -176,9 +176,9 @@ export function eventsRouter({ db }) {
         // Reativação: o horário pode ter sido ocupado nesse meio tempo.
         await assertSchedule(tx, { unitId: ev.unit_id, startAt: ev.start_at, durationMinutes: ev.duration_minutes, excludeId: eventId, guests: ev.guests });
       }
-      (await tx.run(`UPDATE events SET status = ?, cancel_reason = ?, updated_at = datetime('now') WHERE id = ?`, b.status, b.status === 'cancelado' ? b.cancel_reason : null, eventId));
+      (await tx.run(`UPDATE events SET status = ?, cancel_reason = ?, updated_at = now_text() WHERE id = ?`, b.status, b.status === 'cancelado' ? b.cancel_reason : null, eventId));
       if (b.status === 'cancelado') {
-        (await tx.run("UPDATE contracts SET status = 'cancelado', updated_at = datetime('now') WHERE event_id = ? AND status <> 'assinado'", eventId));
+        (await tx.run("UPDATE contracts SET status = 'cancelado', updated_at = now_text() WHERE event_id = ? AND status <> 'assinado'", eventId));
       }
     });
     await audit(db, req, `status_${b.status}`, 'events', eventId, { reason: b.cancel_reason });
@@ -194,16 +194,16 @@ export function eventsRouter({ db }) {
       interval_days: z.coerce.number().int().min(1).max(365).optional().default(30),
       payment_method: optText(40),
     }), req.body);
-    const ev = (await db.get('SELECT * FROM events WHERE id = ?', eventId));
-    if (!ev) throw notFound('Evento não encontrado.');
-    if (ev.status === 'cancelado') throw badRequest('Evento cancelado não gera cobranças.');
-    const launched = (await db.get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM transactions WHERE event_id = ? AND type = 'receber' AND status <> 'cancelado'", eventId)).s;
-    const remaining = ev.total_cents - launched;
-    if (remaining <= 0) throw badRequest('O valor total do evento já está lançado no contas a receber.');
-    const base = Math.floor(remaining / b.installments);
-    const rest = remaining - base * b.installments;
-    await db.transaction(async (tx) => {
-
+    // Lê e trava o evento dentro da transação: um clique duplo não lança as parcelas duas vezes.
+    const remaining = await db.transaction(async (tx) => {
+      const ev = await tx.get('SELECT * FROM events WHERE id = ? FOR UPDATE', eventId);
+      if (!ev) throw notFound('Evento não encontrado.');
+      if (ev.status === 'cancelado') throw badRequest('Evento cancelado não gera cobranças.');
+      const launched = (await tx.get("SELECT COALESCE(SUM(amount_cents), 0) AS s FROM transactions WHERE event_id = ? AND type = 'receber' AND status <> 'cancelado'", eventId)).s;
+      const left = ev.total_cents - launched;
+      if (left <= 0) throw badRequest('O valor total do evento já está lançado no contas a receber.');
+      const base = Math.floor(left / b.installments);
+      const rest = left - base * b.installments;
       const firstDay = toMinutes(`${b.first_due_date}T00:00`);
       for (let i = 0; i < b.installments; i += 1) {
         const due = fromMinutes(firstDay + i * b.interval_days * 1440).slice(0, 10);
@@ -212,6 +212,7 @@ export function eventsRouter({ db }) {
           VALUES ('receber', ?, 'Eventos', ?, ?, ?, ?, ?, ?, ?)`,
         `${ev.title} - parcela ${i + 1}/${b.installments}`, amount, due, ev.client_id, eventId, `${i + 1}/${b.installments}`, b.payment_method, req.user.id);
       }
+      return left;
     });
     await audit(db, req, 'gerou_cobrancas', 'events', eventId, { installments: b.installments, amount: remaining });
     res.status(201).json({ ok: true, amount_cents: remaining });
@@ -220,19 +221,20 @@ export function eventsRouter({ db }) {
   // Baixa no estoque da unidade os produtos usados no evento.
   r.post('/events/:id/consume-stock', requirePerm('stock', 'w'), async (req, res) => {
     const eventId = Number(req.params.id);
-    const ev = (await db.get('SELECT * FROM events WHERE id = ?', eventId));
-    if (!ev) throw notFound('Evento não encontrado.');
-    if (ev.status === 'cancelado') throw badRequest('Evento cancelado.');
-    if (ev.stock_consumed) throw conflict('O estoque deste evento já foi baixado.');
-    const items = (await db.all(`SELECT i.product_id, i.quantity, i.description FROM event_items i JOIN products p ON p.id = i.product_id
-      WHERE i.event_id = ? AND p.type = 'produto'`, eventId));
-    if (!items.length) throw badRequest('Este evento não tem produtos com controle de estoque.');
     await db.transaction(async (tx) => {
+      // A trava na linha do evento impede baixar o mesmo estoque duas vezes.
+      const ev = await tx.get('SELECT * FROM events WHERE id = ? FOR UPDATE', eventId);
+      if (!ev) throw notFound('Evento não encontrado.');
+      if (ev.status === 'cancelado') throw badRequest('Evento cancelado.');
+      if (ev.stock_consumed) throw conflict('O estoque deste evento já foi baixado.');
+      const items = await tx.all(`SELECT i.product_id, i.quantity, i.description FROM event_items i JOIN products p ON p.id = i.product_id
+        WHERE i.event_id = ? AND p.type = 'produto'`, eventId);
+      if (!items.length) throw badRequest('Este evento não tem produtos com controle de estoque.');
       for (const i of items) {
         await moveStock(tx, { productId: i.product_id, unitId: ev.unit_id, delta: -i.quantity, type: 'consumo_evento',
           reason: `Evento "${ev.title}" em ${dateBR(ev.start_at)}`, eventId, userId: req.user.id });
       }
-      (await tx.run("UPDATE events SET stock_consumed = 1, updated_at = datetime('now') WHERE id = ?", eventId));
+      (await tx.run("UPDATE events SET stock_consumed = 1, updated_at = now_text() WHERE id = ?", eventId));
     });
     await audit(db, req, 'baixou_estoque', 'events', eventId);
     res.json({ ok: true });
@@ -255,7 +257,7 @@ export function eventsRouter({ db }) {
   r.get('/blocks', requirePerm('events', 'r'), async (req, res) => {
     res.json((await db.all(`SELECT b.*, u.name AS unit_name, us.name AS created_by_name FROM blocked_dates b
       LEFT JOIN units u ON u.id = b.unit_id LEFT JOIN users us ON us.id = b.created_by
-      WHERE b.date >= date('now', '-30 days') ORDER BY b.date`)));
+      WHERE b.date >= days_ago_text(30) ORDER BY b.date`)));
   });
 
   r.post('/blocks', requirePerm('blocks', 'w'), async (req, res) => {
@@ -272,15 +274,15 @@ export function eventsRouter({ db }) {
     if (days.length > 366) throw badRequest('O período máximo de bloqueio é de 1 ano.');
     if (b.unit_id && !(await db.get('SELECT id FROM units WHERE id = ?', b.unit_id))) throw badRequest('Unidade não encontrada.');
 
-    for (const day of days) {
-      const busy = await eventsOnDate(db, day, b.unit_id);
+    const created = await db.transaction(async (tx) => {
+      // Mesma trava da criação de eventos: ninguém agenda no dia enquanto ele está sendo bloqueado.
+      await tx.lock(AGENDA_LOCK);
+      const busy = await eventsInDays(tx, b.date, last, b.unit_id);
       if (busy.length) {
+        const day = busy[0].start_at.slice(0, 10) < b.date ? b.date : busy[0].start_at.slice(0, 10);
         throw conflict(`Não é possível bloquear ${dateBR(day)}: já existe o evento "${busy[0].title}" (${busy[0].unit_name}). `
           + 'Remarque ou cancele o evento antes de bloquear a data.', { events: busy });
       }
-    }
-    const created = await db.transaction(async (tx) => {
-
       let n = 0;
       for (const day of days) {
         n += (await tx.run('INSERT INTO blocked_dates (date, unit_id, reason, created_by) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING',

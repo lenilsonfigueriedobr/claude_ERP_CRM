@@ -14,7 +14,7 @@ export async function ensureAdmin(db, config, log = console.log) {
       config.admin.name, config.admin.email.toLowerCase(), hashPassword(password), generated ? 1 : 0);
   } catch (err) {
     // Outra instância (serverless) criou o administrador ao mesmo tempo.
-    if (String(err.message).includes('UNIQUE')) return null;
+    if (err.code === '23505') return null;
     throw err;
   }
   if (generated) {

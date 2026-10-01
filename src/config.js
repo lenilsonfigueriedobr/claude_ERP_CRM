@@ -21,9 +21,12 @@ export function loadConfig(overrides = {}) {
     env: env.NODE_ENV || (onVercel ? 'production' : 'development'),
     port,
     db: {
-      // Turso (libsql://...) em produção; arquivo SQLite local no desenvolvimento.
-      url: env.TURSO_DATABASE_URL || env.DATABASE_URL || `file:${path.resolve(root, env.DB_PATH || 'data/erp.db')}`,
-      authToken: env.TURSO_AUTH_TOKEN || env.DATABASE_AUTH_TOKEN || '',
+      // Supabase/Postgres em produção. Sem DATABASE_URL, usa o PGlite (Postgres embutido) na pasta local.
+      url: env.DATABASE_URL || '',
+      caCert: env.DATABASE_CA_CERT ? env.DATABASE_CA_CERT.replace(/\\n/g, '\n') : '',
+      dataDir: path.resolve(root, env.PGLITE_DIR || 'data/pgdata'),
+      // Em serverless cada instância atende uma requisição por vez: poucas conexões bastam.
+      maxConnections: Number(env.DATABASE_POOL_MAX) || (onVercel ? 2 : 5),
     },
     appUrl: publicUrl(env, port).replace(/\/+$/, ''),
     sessionTtlHours: Number(env.SESSION_TTL_HOURS) || 8,
@@ -43,9 +46,9 @@ export function loadConfig(overrides = {}) {
     ...overrides,
   };
   config.isProduction = config.env === 'production';
-  if (config.onVercel && config.db.url.startsWith('file:')) {
-    // O disco das funções do Vercel é temporário: um arquivo SQLite perderia todos os dados.
-    throw new Error('No Vercel é obrigatório configurar TURSO_DATABASE_URL e TURSO_AUTH_TOKEN (banco Turso). Veja o README.');
+  if (config.onVercel && !config.db.url) {
+    // O disco das funções do Vercel é temporário: um banco local perderia todos os dados.
+    throw new Error('No Vercel é obrigatório configurar DATABASE_URL com a conexão do Supabase. Veja o README.');
   }
   return config;
 }

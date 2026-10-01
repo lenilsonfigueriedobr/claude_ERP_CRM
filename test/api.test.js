@@ -257,3 +257,22 @@ test('agendamentos simultâneos no mesmo horário: só um é aceito', async () =
   const statuses = tries.map((t) => t.status).sort();
   assert.deepEqual(statuses, [201, 409, 409, 409, 409, 409]);
 });
+
+test('saídas simultâneas de estoque não deixam o saldo negativo', async () => {
+  const prod = await admin.post('/api/products', { type: 'produto', name: 'Guardanapo', price_cents: 10 });
+  await admin.post('/api/stock/movements', { product_id: prod.data.id, unit_id: ids.unit2, type: 'entrada', quantity: 5 });
+  const outs = await Promise.all(Array.from({ length: 10 }, () => admin.post('/api/stock/movements',
+    { product_id: prod.data.id, unit_id: ids.unit2, type: 'saida', quantity: 1 })));
+  assert.equal(outs.filter((r) => r.status === 201).length, 5);
+  assert.equal(outs.filter((r) => r.status === 400).length, 5);
+  const stock = await admin.get(`/api/stock?unit_id=${ids.unit2}`);
+  assert.equal(stock.data.find((s) => s.product_id === prod.data.id).quantity, 0);
+});
+
+test('cliques duplos não duplicam parcelas nem contratos', async () => {
+  const ev = await admin.post('/api/events', newEvent({ start_at: '2031-07-07T12:00' }));
+  const parcels = await Promise.all([1, 2, 3].map(() => admin.post(`/api/events/${ev.data.id}/receivables`, { installments: 2, first_due_date: '2031-06-01' })));
+  assert.deepEqual(parcels.map((r) => r.status).sort(), [201, 400, 400]);
+  const contracts = await Promise.all([1, 2, 3].map(() => admin.post('/api/contracts', { event_id: ev.data.id })));
+  assert.deepEqual(contracts.map((r) => r.status).sort(), [201, 400, 400]);
+});

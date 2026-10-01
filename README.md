@@ -14,7 +14,7 @@ No celular: [painel](docs/screenshots/10-celular-painel.png) e [menu](docs/scree
 
 ## Como rodar
 
-Precisa do Node.js 22.9 ou mais novo. Não tem etapa de build. No seu computador o banco é um arquivo SQLite em `data/erp.db`; em produção é o Turso, que usa o mesmo SQL (veja [Publicar no Vercel](#publicar-no-vercel)).
+Precisa do Node.js 22.9 ou mais novo. Não tem etapa de build. O banco é Postgres: em produção é o Supabase; no seu computador, se `DATABASE_URL` ficar vazia, o sistema usa o PGlite, um Postgres completo que roda dentro do Node e grava em `data/pgdata`, sem instalar nada (veja [Publicar no Vercel com Supabase](#publicar-no-vercel-com-supabase)).
 
 ```bash
 npm install
@@ -35,7 +35,8 @@ Isso cria também um usuário de cada perfil com a senha `Demo12345`: `gerente@d
 Outros comandos:
 
 ```bash
-npm test        # testes das regras de agenda e da API
+npm test        # testes das regras de agenda e da API (no PGlite)
+TEST_DATABASE_URL=postgresql://... npm test   # mesmos testes contra um Postgres de verdade (use um banco vazio, só para testes)
 npm run lint    # ESLint
 npm run dev     # reinicia sozinho ao salvar arquivos
 ```
@@ -98,55 +99,63 @@ A Meta só aceita mensagem livre quando o cliente falou com a empresa nas últim
 
 Os links públicos usam tokens aleatórios de 256 bits. Formulários expiram em 15 dias e só aceitam uma resposta.
 
-## Publicar no Vercel
+## Publicar no Vercel com Supabase
 
-O Vercel roda o sistema como função serverless e serve as páginas pela CDN. Como o disco das funções é apagado a cada execução, o banco precisa ficar fora: o sistema usa o [Turso](https://turso.tech), um SQLite hospedado que tem plano gratuito. Sem o Turso configurado, a função se recusa a subir, de propósito, para você não perder dados achando que estão salvos.
+O Vercel roda o sistema como função serverless e serve as páginas pela CDN. O disco das funções é apagado a cada execução, então os dados ficam no Supabase (Postgres hospedado, com plano gratuito). Sem `DATABASE_URL` configurada, a função se recusa a subir, de propósito, para você não perder dados achando que estão salvos.
 
-**1. Crie o banco no Turso.** Crie a conta, crie um banco na região mais perto dos seus usuários e gere um token de acesso. Dá para fazer pelo painel do Turso ou pelo terminal:
+**1. Crie o projeto no Supabase.** Em [supabase.com](https://supabase.com), crie um projeto, escolha a região mais perto dos seus usuários (São Paulo, se for o caso) e anote a senha do banco.
 
-```bash
-turso db create eventos
-turso db show eventos --url          # libsql://eventos-xxxx.turso.io
-turso db tokens create eventos       # token de acesso
+**2. Pegue a string de conexão.** No projeto, clique em **Connect** e copie a opção **Transaction pooler** (porta `6543`). Ela é a indicada para serverless, porque o pooler segura as conexões e cada função usa só uma ou duas. Troque `[YOUR-PASSWORD]` pela senha do banco. Fica parecido com:
+
+```
+postgresql://postgres.abcdefghijk:SUA_SENHA@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
 ```
 
-Se preferir, instale a integração do Turso pelo marketplace do Vercel: ela cria o banco e já preenche as variáveis.
+Se a senha tiver caracteres especiais (`@`, `#`, `/`...), escreva-os codificados para URL (`@` vira `%40`, por exemplo) ou gere uma senha só com letras e números.
 
-**2. Importe o repositório no Vercel.** Em *Add New > Project*, escolha o repositório. Não precisa mudar nada nas opções de build: o `vercel.json` já diz que as páginas saem de `public/` e que `api/index.js` é a função.
+**3. Importe o repositório no Vercel.** Em *Add New > Project*, escolha o repositório. Não precisa mudar as opções de build: o `vercel.json` já diz que as páginas saem de `public/` e que `api/index.js` é a função.
 
-**3. Configure as variáveis** em *Settings > Environment Variables*:
+**4. Configure as variáveis** em *Settings > Environment Variables*:
 
 | Variável | Obrigatória | Valor |
 |---|---|---|
-| `TURSO_DATABASE_URL` | sim | a URL `libsql://...` do passo 1 |
-| `TURSO_AUTH_TOKEN` | sim | o token do passo 1 |
+| `DATABASE_URL` | sim | a string do passo 2 |
 | `ADMIN_EMAIL` | sim | e-mail do primeiro administrador |
 | `ADMIN_PASSWORD` | sim | senha inicial (8+ caracteres, letras e números) |
 | `ADMIN_NAME` | não | nome do administrador |
+| `DATABASE_CA_CERT` | recomendada | certificado do Supabase, para o sistema verificar que está falando com o servidor certo (veja abaixo) |
 | `APP_URL` | não | só se usar domínio próprio, ex. `https://gestao.suaempresa.com.br` |
 | `WHATSAPP_TOKEN` e `WHATSAPP_PHONE_NUMBER_ID` | não | para enviar pela API oficial do WhatsApp |
 
-**4. Faça o deploy.** Na primeira requisição o sistema cria as tabelas e o administrador. Entre com `ADMIN_EMAIL` e `ADMIN_PASSWORD` e troque a senha em *Trocar senha*. Depois disso você pode apagar `ADMIN_PASSWORD` do Vercel: ela só é usada quando o banco está vazio.
+**5. Faça o deploy.** Na primeira requisição o sistema cria as tabelas sozinho (não precisa rodar SQL no painel do Supabase) e cadastra o administrador. Entre com `ADMIN_EMAIL` e `ADMIN_PASSWORD` e troque a senha em *Trocar senha*. Depois disso pode apagar `ADMIN_PASSWORD` do Vercel: ela só é usada com o banco vazio.
 
-**Dados de demonstração no Turso (opcional).** Rode no seu computador apontando para o banco remoto:
+**Certificado (DATABASE_CA_CERT).** A conexão com o Supabase é sempre criptografada. Sem o certificado, porém, o sistema não confere a identidade do servidor, porque o certificado do Supabase não vem de uma autoridade pública. Para ligar a verificação, baixe o arquivo em *Project Settings > Database > SSL Configuration > Download certificate*, abra num editor de texto e cole o conteúdo inteiro (de `-----BEGIN CERTIFICATE-----` até `-----END CERTIFICATE-----`) na variável.
+
+**Dados de demonstração no Supabase (opcional).** Rode no seu computador apontando para o banco do projeto:
 
 ```bash
-TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run seed:demo
+DATABASE_URL="postgresql://..." ADMIN_EMAIL=... ADMIN_PASSWORD=... npm run seed:demo
 ```
+
+**A API pública do Supabase fica fechada.** O Supabase publica as tabelas do schema `public` numa API REST que aceita a chave anônima do projeto, e essa chave costuma ficar exposta em sites. Este sistema não usa essa API: só o servidor acessa o banco. Por isso a migração liga o RLS (segurança por linha) em todas as tabelas sem criar nenhuma política, e tira os privilégios dos papéis `anon` e `authenticated`. Quem tentar ler pela API recebe "permission denied". No painel, o Supabase vai mostrar as tabelas com RLS ligado e sem políticas: é exatamente o que queremos. Não crie políticas nem use a chave `service_role` no navegador.
 
 **Como fica no Vercel**
 
 - `api/index.js` é a função que atende `/api/*`. Ela inicializa o app uma vez por instância e reaproveita nas próximas requisições.
 - Os links públicos `/p/contrato/...` e `/p/formulario/...` são reescritos para as páginas estáticas, que buscam os dados na API.
-- Os cabeçalhos de segurança (CSP, HSTS, anti-iframe) das páginas estáticas estão no `vercel.json`; os da API vêm do Helmet.
+- Os cabeçalhos de segurança das páginas estáticas (CSP, HSTS, anti-iframe) estão no `vercel.json`; os da API vêm do Helmet.
 - Em produção o cookie de sessão usa o prefixo `__Host-`, só trafega em HTTPS e o sistema confia no IP repassado pelo proxy do Vercel.
 - Os links enviados por WhatsApp usam o domínio de produção do projeto. Em deploys de prévia, usam o endereço da própria prévia.
+- O PGlite (usado só no computador e nos testes) fica fora do pacote da função.
+
+**Operações simultâneas.** Com Postgres, várias requisições são gravadas ao mesmo tempo. Tudo que "confere e depois grava" usa trava no banco: conflito de agenda e bloqueio de datas, saldo de estoque, numeração e unicidade de contrato, geração de parcelas, baixa de estoque do evento, aceite de contrato, resposta de formulário e contagem de senhas erradas. Os testes disparam pedidos em paralelo para conferir, por exemplo, que de 6 agendamentos simultâneos no mesmo horário só 1 é aceito.
 
 **Limites que vale conhecer**
 
 - O limite de requisições por IP fica na memória de cada instância. Com várias instâncias ele é menos rígido. O bloqueio de conta após 5 senhas erradas fica no banco e continua valendo sempre.
 - A primeira requisição depois de um tempo parado demora um pouco mais (partida a frio da função).
-- Backup: o Turso guarda histórico e permite restaurar o banco para um ponto no tempo, conforme o plano.
+- Backup: o Supabase faz backup diário nos planos pagos; no gratuito, exporte o banco de vez em quando (`pg_dump` com a string de conexão direta).
+- No plano gratuito o Supabase pausa projetos sem uso por uma semana. É só reativar no painel.
 
 ## Segurança
 
@@ -160,7 +169,7 @@ TURSO_DATABASE_URL=libsql://... TURSO_AUTH_TOKEN=... ADMIN_EMAIL=... ADMIN_PASSW
 - Auditoria das ações sensíveis (login, alterações, pagamentos, bloqueios, aceite de contrato com IP).
 - Troca de perfil ou desativação derruba as sessões do usuário. O sistema não deixa ficar sem administrador ativo.
 
-Em servidor próprio (fora do Vercel): rode atrás de HTTPS, defina `NODE_ENV=production`, `APP_URL` com o domínio real e `TRUST_PROXY=1` se houver proxy reverso. Use o Turso ou faça backup do arquivo `data/erp.db`.
+Em servidor próprio (fora do Vercel): rode atrás de HTTPS, defina `NODE_ENV=production`, `APP_URL` com o domínio real e `TRUST_PROXY=1` se houver proxy reverso. Use o Supabase (ou outro Postgres) via `DATABASE_URL`.
 
 ## Estrutura
 
@@ -172,7 +181,7 @@ src/
   boot.js              inicialização compartilhada: banco, migrações e administrador
   app.js               Express, segurança e rotas
   config.js            leitura do .env
-  db/index.js          acesso ao banco (arquivo local, memória ou Turso) e transações
+  db/index.js          acesso ao Postgres (Supabase via pg, ou PGlite local) e transações
   db/                  migrações, criação do admin e dados de demonstração
   lib/eventRules.js    regras de agenda (funções puras, testadas)
   lib/schedule.js      checagem de conflito, bloqueio e capacidade no banco

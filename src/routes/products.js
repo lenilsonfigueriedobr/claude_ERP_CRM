@@ -25,7 +25,7 @@ export function productsRouter({ db }) {
     const all = req.query.all === '1';
     res.json((await db.all(`SELECT p.*, (SELECT COALESCE(SUM(quantity), 0) FROM stock s WHERE s.product_id = p.id) AS stock_total
       FROM products p
-      WHERE (? = '' OR p.name LIKE ? OR p.sku LIKE ? OR p.category LIKE ?) AND (? = '' OR p.type = ?) ${all ? '' : 'AND p.active = 1'}
+      WHERE (? = '' OR p.name ILIKE ? OR p.sku ILIKE ? OR p.category ILIKE ?) AND (? = '' OR p.type = ?) ${all ? '' : 'AND p.active = 1'}
       ORDER BY p.type, p.name`, q, `%${q}%`, `%${q}%`, `%${q}%`, type, type)));
   });
 
@@ -41,7 +41,7 @@ export function productsRouter({ db }) {
     const productId = Number(req.params.id);
     const b = parse(schema, req.body);
     const info = (await db.run(`UPDATE products SET type = ?, name = ?, sku = ?, category = ?, unit_measure = ?, price_cents = ?, cost_cents = ?,
-      min_stock = ?, description = ?, active = ?, updated_at = datetime('now') WHERE id = ?`, b.type, b.name, b.sku, b.category, b.unit_measure, b.price_cents, b.cost_cents, b.type === 'produto' ? b.min_stock : 0, b.description, b.active ? 1 : 0, productId));
+      min_stock = ?, description = ?, active = ?, updated_at = now_text() WHERE id = ?`, b.type, b.name, b.sku, b.category, b.unit_measure, b.price_cents, b.cost_cents, b.type === 'produto' ? b.min_stock : 0, b.description, b.active ? 1 : 0, productId));
     if (!info.changes) throw notFound('Item não encontrado.');
     await audit(db, req, 'alterou', 'products', productId);
     res.json((await db.get('SELECT * FROM products WHERE id = ?', productId)));
@@ -49,7 +49,7 @@ export function productsRouter({ db }) {
 
   r.delete('/products/:id', requirePerm('products', 'w'), async (req, res) => {
     // Exclusão lógica: o item some dos cadastros, mas continua nos eventos e movimentações antigas.
-    const info = (await db.run("UPDATE products SET active = 0, updated_at = datetime('now') WHERE id = ?", Number(req.params.id)));
+    const info = (await db.run("UPDATE products SET active = 0, updated_at = now_text() WHERE id = ?", Number(req.params.id)));
     if (!info.changes) throw notFound('Item não encontrado.');
     await audit(db, req, 'desativou', 'products', Number(req.params.id));
     res.json({ ok: true });

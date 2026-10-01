@@ -45,16 +45,20 @@ export function authRouter({ db, config, requireAuth }) {
     const ok = verifyPassword(body.password, user?.password_hash || DUMMY_HASH);
     if (!user || !ok || !user.active) {
       if (user) {
-        const attempts = user.failed_attempts + 1;
-        const lockedUntil = attempts >= MAX_ATTEMPTS ? new Date(now + LOCK_MINUTES * 60000).toISOString() : null;
-        (await db.run('UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?', lockedUntil ? 0 : attempts, lockedUntil, user.id));
+        // Incremento feito pelo próprio banco: tentativas em paralelo não escapam da contagem.
+        const { failed_attempts: attempts } = await db.get(
+          'UPDATE users SET failed_attempts = failed_attempts + 1 WHERE id = ? RETURNING failed_attempts', user.id);
+        if (attempts >= MAX_ATTEMPTS) {
+          await db.run('UPDATE users SET failed_attempts = 0, locked_until = ? WHERE id = ?',
+            new Date(now + LOCK_MINUTES * 60000).toISOString(), user.id);
+        }
         await audit(db, { ...req, user }, 'login_falhou', 'users', user.id);
       }
       throw unauthorized('E-mail ou senha incorretos.');
     }
 
     (await db.run("DELETE FROM sessions WHERE expires_at < ?", new Date(now).toISOString()));
-    (await db.run("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = datetime('now') WHERE id = ?", user.id));
+    (await db.run("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login_at = now_text() WHERE id = ?", user.id));
 
     const token = randomToken();
     const csrf = randomToken();
@@ -83,7 +87,7 @@ export function authRouter({ db, config, requireAuth }) {
     const problem = passwordProblem(body.password);
     if (problem) throw badRequest(problem);
     if (body.current === body.password) throw badRequest('A nova senha precisa ser diferente da atual.');
-    (await db.run("UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime('now') WHERE id = ?", hashPassword(body.password), req.user.id));
+    (await db.run("UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = now_text() WHERE id = ?", hashPassword(body.password), req.user.id));
     // Encerra as outras sessões do usuário
     (await db.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', req.user.id, req.session.id));
     await audit(db, req, 'trocou_senha', 'users', req.user.id);

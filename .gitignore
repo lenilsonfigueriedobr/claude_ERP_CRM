@@ -1,6 +1,7 @@
 node_modules/
 data/*.db
 data/*.db-*
+data/pgdata/
 .env
 *.log
 .DS_Store

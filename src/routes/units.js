@@ -18,7 +18,7 @@ export function unitsRouter({ db }) {
   r.get('/units', requirePerm('units', 'r'), async (req, res) => {
     const all = req.query.all === '1';
     res.json((await db.all(`SELECT u.*,
-        (SELECT COUNT(*) FROM events e WHERE e.unit_id = u.id AND e.status <> 'cancelado' AND e.start_at >= date('now')) AS upcoming_events
+        (SELECT COUNT(*) FROM events e WHERE e.unit_id = u.id AND e.status <> 'cancelado' AND e.start_at >= today_text()) AS upcoming_events
       FROM units u ${all ? '' : 'WHERE u.active = 1'} ORDER BY u.name`)));
   });
 
@@ -34,11 +34,11 @@ export function unitsRouter({ db }) {
     if (!(await db.get('SELECT id FROM units WHERE id = ?', unitId))) throw notFound('Unidade não encontrada.');
     const b = parse(schema, req.body);
     const maxGuests = (await db.get(`SELECT MAX(guests) AS g FROM events WHERE unit_id = ? AND status IN ('pre_reserva','confirmado')
-      AND start_at >= date('now')`, unitId)).g;
+      AND start_at >= today_text()`, unitId)).g;
     if (maxGuests && b.capacity < maxGuests) {
       throw badRequest(`Há evento futuro nesta unidade com ${maxGuests} convidados. A capacidade não pode ficar abaixo disso.`);
     }
-    (await db.run(`UPDATE units SET name = ?, location = ?, capacity = ?, color = ?, notes = ?, active = ?, updated_at = datetime('now') WHERE id = ?`, b.name, b.location, b.capacity, b.color, b.notes, b.active ? 1 : 0, unitId));
+    (await db.run(`UPDATE units SET name = ?, location = ?, capacity = ?, color = ?, notes = ?, active = ?, updated_at = now_text() WHERE id = ?`, b.name, b.location, b.capacity, b.color, b.notes, b.active ? 1 : 0, unitId));
     await audit(db, req, 'alterou', 'units', unitId);
     res.json((await db.get('SELECT * FROM units WHERE id = ?', unitId)));
   });
@@ -48,7 +48,7 @@ export function unitsRouter({ db }) {
     const used = (await db.get('SELECT COUNT(*) AS n FROM events WHERE unit_id = ?', unitId)).n;
     if (used) {
       // Unidade com histórico: apenas desativa para preservar os eventos passados.
-      (await db.run("UPDATE units SET active = 0, updated_at = datetime('now') WHERE id = ?", unitId));
+      (await db.run("UPDATE units SET active = 0, updated_at = now_text() WHERE id = ?", unitId));
       await audit(db, req, 'desativou', 'units', unitId);
       return res.json({ ok: true, deactivated: true });
     }

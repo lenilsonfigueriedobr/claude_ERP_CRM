@@ -50,7 +50,7 @@ export function usersRouter({ db }) {
     if (userId === req.user.id && (!body.active || body.role !== current.role)) {
       throw badRequest('Você não pode alterar o próprio perfil ou desativar a própria conta.');
     }
-    (await db.run(`UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, updated_at = datetime('now') WHERE id = ?`, body.name, body.email, body.phone, body.role, body.active ? 1 : 0, userId));
+    (await db.run(`UPDATE users SET name = ?, email = ?, phone = ?, role = ?, active = ?, updated_at = now_text() WHERE id = ?`, body.name, body.email, body.phone, body.role, body.active ? 1 : 0, userId));
     if (!body.active || body.role !== current.role) (await db.run('DELETE FROM sessions WHERE user_id = ?', userId));
     await audit(db, req, 'alterou', 'users', userId, { role: body.role, active: body.active });
     res.json((await db.get(`SELECT ${COLUMNS} FROM users WHERE id = ?`, userId)));
@@ -61,7 +61,7 @@ export function usersRouter({ db }) {
     if (!(await db.get('SELECT id FROM users WHERE id = ?', userId))) throw notFound('Usuário não encontrado.');
     const password = generatePassword();
     (await db.run(`UPDATE users SET password_hash = ?, must_change_password = 1, failed_attempts = 0, locked_until = NULL,
-      updated_at = datetime('now') WHERE id = ?`, hashPassword(password), userId));
+      updated_at = now_text() WHERE id = ?`, hashPassword(password), userId));
     (await db.run('DELETE FROM sessions WHERE user_id = ?', userId));
     await audit(db, req, 'resetou_senha', 'users', userId);
     res.json({ temporaryPassword: password });

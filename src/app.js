@@ -82,11 +82,12 @@ export function createApp({ db, config }) {
     if (err instanceof AppError) return res.status(err.status).json({ error: err.message, details: err.details });
     if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON inválido.' });
     if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'Conteúdo muito grande.' });
-    const msg = String(err?.message || '');
-    if (msg.includes('UNIQUE constraint failed')) return res.status(409).json({ error: 'Já existe um registro com esses dados.' });
-    if (msg.includes('FOREIGN KEY constraint failed')) {
+    // Códigos de erro do Postgres: 23505 = valor duplicado, 23503 = vínculo com outro registro, 23514 = regra (CHECK).
+    if (err?.code === '23505') return res.status(409).json({ error: 'Já existe um registro com esses dados.' });
+    if (err?.code === '23503') {
       return res.status(409).json({ error: 'Este registro está vinculado a outros dados e não pode ser alterado ou excluído.' });
     }
+    if (err?.code === '23514' || err?.code === '22P02') return res.status(400).json({ error: 'Dados inválidos.' });
     console.error(err);
     res.status(500).json({ error: 'Erro interno. Tente novamente.' });
   });

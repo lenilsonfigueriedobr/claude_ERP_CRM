@@ -39,7 +39,7 @@ export function financeRouter({ db }) {
       WHERE (? = '' OR t.type = ?)
         AND (? = '' OR (? = 'vencido' AND t.status = 'pendente' AND t.due_date < ?) OR (? <> 'vencido' AND t.status = ?))
         AND (? = '' OR t.due_date >= ?) AND (? = '' OR t.due_date <= ?)
-        AND (? = '' OR t.description LIKE ? OR t.supplier LIKE ? OR c.name LIKE ? OR t.category LIKE ?)
+        AND (? = '' OR t.description ILIKE ? OR t.supplier ILIKE ? OR c.name ILIKE ? OR t.category ILIKE ?)
       ORDER BY t.due_date, t.id LIMIT 2000`, t, type, type, status, status, t, status, status, from, from, to, to, q, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`));
     res.json(rows);
   });
@@ -60,7 +60,7 @@ export function financeRouter({ db }) {
     if (current.status !== 'pendente') throw badRequest('Apenas lançamentos pendentes podem ser editados. Estorne o pagamento antes.');
     const b = parse(schema, req.body);
     (await db.run(`UPDATE transactions SET type = ?, description = ?, category = ?, amount_cents = ?, due_date = ?, payment_method = ?, client_id = ?,
-        event_id = ?, supplier = ?, document_number = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`, b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
+        event_id = ?, supplier = ?, document_number = ?, notes = ?, updated_at = now_text() WHERE id = ?`, b.type, b.description, b.category, b.amount_cents, b.due_date, b.payment_method, b.client_id, b.event_id, b.supplier,
         b.document_number, b.notes, txId));
     await audit(db, req, 'alterou', 'transactions', txId);
     res.json(await load(txId));
@@ -77,14 +77,14 @@ export function financeRouter({ db }) {
     if (!tx) throw notFound('Lançamento não encontrado.');
     if (tx.status !== 'pendente') throw badRequest('Este lançamento não está pendente.');
     (await db.run(`UPDATE transactions SET status = 'pago', paid_at = ?, paid_amount_cents = ?, payment_method = COALESCE(?, payment_method),
-      updated_at = datetime('now') WHERE id = ?`, b.paid_at, b.paid_amount_cents, b.payment_method, txId));
+      updated_at = now_text() WHERE id = ?`, b.paid_at, b.paid_amount_cents, b.payment_method, txId));
     await audit(db, req, 'baixou', 'transactions', txId, b);
     res.json(await load(txId));
   });
 
   r.post('/finance/transactions/:id/reopen', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const info = (await db.run(`UPDATE transactions SET status = 'pendente', paid_at = NULL, paid_amount_cents = NULL, updated_at = datetime('now')
+    const info = (await db.run(`UPDATE transactions SET status = 'pendente', paid_at = NULL, paid_amount_cents = NULL, updated_at = now_text()
       WHERE id = ? AND status IN ('pago','cancelado')`, txId));
     if (!info.changes) throw badRequest('Lançamento não pode ser reaberto.');
     await audit(db, req, 'reabriu', 'transactions', txId);
@@ -93,7 +93,7 @@ export function financeRouter({ db }) {
 
   r.post('/finance/transactions/:id/cancel', requirePerm('finance', 'w'), async (req, res) => {
     const txId = Number(req.params.id);
-    const info = (await db.run("UPDATE transactions SET status = 'cancelado', updated_at = datetime('now') WHERE id = ? AND status = 'pendente'", txId));
+    const info = (await db.run("UPDATE transactions SET status = 'cancelado', updated_at = now_text() WHERE id = ? AND status = 'pendente'", txId));
     if (!info.changes) throw badRequest('Apenas lançamentos pendentes podem ser cancelados.');
     await audit(db, req, 'cancelou', 'transactions', txId);
     res.json(await load(txId));

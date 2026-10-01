@@ -52,7 +52,7 @@ export async function contractVariables(db, eventId, number) {
 
 export async function nextContractNumber(db) {
   const year = new Date().getFullYear();
-  const row = (await db.get("SELECT number FROM contracts WHERE number LIKE ? ORDER BY id DESC LIMIT 1", `${year}-%`));
+  const row = (await db.get("SELECT number FROM contracts WHERE number ILIKE ? ORDER BY id DESC LIMIT 1", `${year}-%`));
   const seq = row ? Number(row.number.split('-')[1]) + 1 : 1;
   return `${year}-${String(seq).padStart(4, '0')}`;
 }

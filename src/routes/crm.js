@@ -47,7 +47,7 @@ export function crmRouter({ db }) {
     const rows = (await db.all(`SELECT c.*,
         (SELECT COUNT(*) FROM events e WHERE e.client_id = c.id AND e.status <> 'cancelado') AS events_count
       FROM clients c
-      WHERE (? = '' OR c.name LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR c.whatsapp LIKE ? OR c.document LIKE ?)
+      WHERE (? = '' OR c.name ILIKE ? OR c.email ILIKE ? OR c.phone ILIKE ? OR c.whatsapp ILIKE ? OR c.document ILIKE ?)
       ORDER BY c.name LIMIT 500`, q, like, like, like, like, like));
     res.json(rows);
   });
@@ -78,7 +78,7 @@ export function crmRouter({ db }) {
     const clientId = Number(req.params.id);
     const b = parse(clientSchema, req.body);
     const info = (await db.run(`UPDATE clients SET type = ?, name = ?, document = ?, email = ?, phone = ?, whatsapp = ?, birth_date = ?,
-      address = ?, city = ?, state = ?, source = ?, notes = ?, updated_at = datetime('now') WHERE id = ?`, b.type, b.name, b.document, b.email, b.phone, b.whatsapp, b.birth_date, b.address, b.city, b.state?.toUpperCase() ?? null, b.source, b.notes, clientId));
+      address = ?, city = ?, state = ?, source = ?, notes = ?, updated_at = now_text() WHERE id = ?`, b.type, b.name, b.document, b.email, b.phone, b.whatsapp, b.birth_date, b.address, b.city, b.state?.toUpperCase() ?? null, b.source, b.notes, clientId));
     if (!info.changes) throw notFound('Cliente não encontrado.');
     await audit(db, req, 'alterou', 'clients', clientId);
     res.json((await db.get('SELECT * FROM clients WHERE id = ?', clientId)));
@@ -114,7 +114,7 @@ export function crmRouter({ db }) {
       FROM deals d JOIN clients c ON c.id = d.client_id
       LEFT JOIN users u ON u.id = d.owner_id
       LEFT JOIN units un ON un.id = d.unit_id
-      WHERE (d.stage NOT IN ('ganho','perdido') OR d.closed_at >= date('now', '-90 days') OR d.closed_at IS NULL)
+      WHERE (d.stage NOT IN ('ganho','perdido') OR d.closed_at >= days_ago_text(90) OR d.closed_at IS NULL)
       ORDER BY d.updated_at DESC`));
     res.json(rows);
   });
@@ -128,12 +128,12 @@ export function crmRouter({ db }) {
     if (dealId) {
       const info = (await db.run(`UPDATE deals SET title = ?, client_id = ?, stage = ?, value_cents = ?, event_type = ?, expected_date = ?,
         guests = ?, unit_id = ?, source = ?, owner_id = ?, lost_reason = ?, notes = ?,
-        closed_at = CASE WHEN ? THEN COALESCE(closed_at, datetime('now')) ELSE NULL END, updated_at = datetime('now') WHERE id = ?`, ...values, closed ? 1 : 0, dealId));
+        closed_at = CASE WHEN CAST(? AS INTEGER) = 1 THEN COALESCE(closed_at, now_text()) ELSE NULL END, updated_at = now_text() WHERE id = ?`, ...values, closed ? 1 : 0, dealId));
       if (!info.changes) throw notFound('Negociação não encontrada.');
       return dealId;
     }
     const info = (await db.run(`INSERT INTO deals (title, client_id, stage, value_cents, event_type, expected_date, guests, unit_id, source,
-      owner_id, lost_reason, notes, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${closed ? "datetime('now')" : 'NULL'})`, ...values));
+      owner_id, lost_reason, notes, closed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${closed ? "now_text()" : 'NULL'})`, ...values));
     return Number(info.lastInsertRowid);
   };
 
@@ -159,7 +159,7 @@ export function crmRouter({ db }) {
     if (b.stage === 'perdido' && !b.lost_reason && !deal.lost_reason) throw badRequest('Informe o motivo da perda.');
     const closed = b.stage === 'ganho' || b.stage === 'perdido';
     (await db.run(`UPDATE deals SET stage = ?, lost_reason = COALESCE(?, lost_reason),
-      closed_at = CASE WHEN ? THEN COALESCE(closed_at, datetime('now')) ELSE NULL END, updated_at = datetime('now') WHERE id = ?`, b.stage, b.lost_reason, closed ? 1 : 0, dealId));
+      closed_at = CASE WHEN CAST(? AS INTEGER) = 1 THEN COALESCE(closed_at, now_text()) ELSE NULL END, updated_at = now_text() WHERE id = ?`, b.stage, b.lost_reason, closed ? 1 : 0, dealId));
     (await db.run('INSERT INTO interactions (client_id, deal_id, type, description, user_id) VALUES (?, ?, ?, ?, ?)', deal.client_id, dealId, 'nota', `Negociação "${deal.title}" movida para a etapa "${b.stage}".`, req.user.id));
     await audit(db, req, 'mudou_etapa', 'deals', dealId, { stage: b.stage });
     res.json((await db.get('SELECT * FROM deals WHERE id = ?', dealId)));

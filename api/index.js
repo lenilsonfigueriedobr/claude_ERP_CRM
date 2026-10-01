@@ -1,5 +1,5 @@
 // Função serverless do Vercel. Atende todas as rotas /api/* com o mesmo app Express.
-// A inicialização (conexão com o Turso, migrações e administrador) acontece uma vez por
+// A inicialização (conexão com o Supabase, migrações e administrador) acontece uma vez por
 // instância e é reaproveitada nas próximas requisições.
 import { boot } from '../src/boot.js';
 

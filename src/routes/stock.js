@@ -24,7 +24,7 @@ export function stockRouter({ db }) {
       FROM products p CROSS JOIN units u
       LEFT JOIN stock s ON s.product_id = p.id AND s.unit_id = u.id
       WHERE p.type = 'produto' AND p.active = 1 AND u.active = 1
-        AND (? = 0 OR u.id = ?) AND (? = '' OR p.name LIKE ? OR p.sku LIKE ? OR p.category LIKE ?)
+        AND (? = 0 OR u.id = ?) AND (? = '' OR p.name ILIKE ? OR p.sku ILIKE ? OR p.category ILIKE ?)
       ORDER BY p.name, u.name`, unitId, unitId, q, `%${q}%`, `%${q}%`, `%${q}%`));
     res.json(rows);
   });

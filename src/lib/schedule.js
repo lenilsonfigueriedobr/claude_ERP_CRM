@@ -7,6 +7,9 @@ import { dateBR } from './format.js';
 
 const hm = (v) => v.slice(11, 16);
 
+// Nome da trava que serializa tudo que mexe na agenda (eventos e bloqueios de data).
+export const AGENDA_LOCK = 'erp:agenda';
+
 // Verifica a agenda sem lançar erro: devolve bloqueios, conflitos e sugestão de horário.
 export async function checkSchedule(db, { unitId, startAt, durationMinutes, excludeId = null, guests = null }) {
   if (!isValidDateTime(startAt)) throw badRequest('Data e horário de início inválidos.');
@@ -64,8 +67,13 @@ export function describeConflict(result) {
   return result.capacityIssue;
 }
 
-export async function assertSchedule(db, args) {
-  const result = await checkSchedule(db, args);
+// Deve ser chamada dentro de uma transação, antes de gravar o evento. A trava faz com que duas
+// requisições disputando o mesmo horário sejam atendidas uma depois da outra: a segunda já
+// enxerga o evento gravado pela primeira e recebe o aviso de conflito.
+export async function assertSchedule(tx, args) {
+  if (!tx.lock) throw new Error('assertSchedule precisa ser chamada dentro de uma transação.');
+  await tx.lock(AGENDA_LOCK);
+  const result = await checkSchedule(tx, args);
   if (result.blocks.length || result.conflicts.length) {
     throw conflict(describeConflict(result), { conflicts: result.conflicts, suggestion: result.suggestion });
   }
@@ -73,10 +81,10 @@ export async function assertSchedule(db, args) {
   return result;
 }
 
-// Eventos ativos que ocupam um determinado dia (em uma unidade ou em todas).
-export async function eventsOnDate(db, date, unitId = null) {
-  const next = fromMinutes(toMinutes(`${date}T00:00`) + 1440);
+// Eventos ativos que ocupam algum dia do período (em uma unidade ou em todas).
+export async function eventsInDays(db, firstDate, lastDate, unitId = null) {
+  const next = fromMinutes(toMinutes(`${lastDate}T00:00`) + 1440);
   return (await db.all(`SELECT e.id, e.title, e.start_at, e.end_at, u.name AS unit_name FROM events e JOIN units u ON u.id = e.unit_id
-    WHERE e.status IN ('pre_reserva','confirmado') AND e.start_at < ? AND e.end_at > ? AND (? IS NULL OR e.unit_id = ?)
-    ORDER BY e.start_at`, next, `${date}T00:00`, unitId, unitId));
+    WHERE e.status IN ('pre_reserva','confirmado') AND e.start_at < ? AND e.end_at > ? AND (CAST(? AS BIGINT) IS NULL OR e.unit_id = ?)
+    ORDER BY e.start_at`, next, `${firstDate}T00:00`, unitId, unitId));
 }

@@ -70,7 +70,7 @@ export function whatsappRouter({ db, config }) {
       vars.link = `${config.appUrl}/p/contrato/${contract.public_token}`;
       message = message ? `${message}\n\n${vars.link}` : fillTemplate(s.whatsapp_contract_message, vars);
       afterSend = async () => (await db.run(`UPDATE contracts SET status = CASE WHEN status = 'rascunho' THEN 'enviado' ELSE status END,
-        sent_at = COALESCE(sent_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`, contract.id));
+        sent_at = COALESCE(sent_at, now_text()), updated_at = now_text() WHERE id = ?`, contract.id));
     } else if (b.kind === 'formulario') {
       if (!can(req.user.role, 'crm', 'w')) throw forbidden();
       if (b.event_id) {
